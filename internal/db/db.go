@@ -89,6 +89,13 @@ CREATE TABLE IF NOT EXISTS replies (
     body TEXT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS tokens (
+    token TEXT PRIMARY KEY,
+    user_name TEXT NOT NULL,
+    user_email TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 `
 
 func New(dbPath string) (*DB, error) {
@@ -385,4 +392,16 @@ func (d *DB) GetReplies(commentID string) ([]Reply, error) {
 		replies = append(replies, r)
 	}
 	return replies, rows.Err()
+}
+
+// --- Tokens ---
+
+func (d *DB) CreateToken(token, userName, userEmail string) error {
+	_, err := d.Exec(`INSERT INTO tokens (token, user_name, user_email) VALUES (?, ?, ?)`, token, userName, userEmail)
+	return err
+}
+
+func (d *DB) GetUserByToken(token string) (name, email string, err error) {
+	err = d.QueryRow(`SELECT user_name, user_email FROM tokens WHERE token = ?`, token).Scan(&name, &email)
+	return
 }

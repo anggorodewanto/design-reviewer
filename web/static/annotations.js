@@ -65,17 +65,19 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
     function showNewCommentForm(xPct, yPct) {
+        var nameField = window.authUser ? '' : '<input class="comment-input" placeholder="Your name" id="nc-name">';
         panel.innerHTML =
             '<div class="panel-header"><span>New Comment</span><button class="panel-close">&times;</button></div>' +
             '<div class="panel-body">' +
-            '<input class="comment-input" placeholder="Your name" id="nc-name">' +
+            nameField +
             '<textarea class="comment-input" placeholder="Add a comment..." id="nc-body" rows="3"></textarea>' +
             '<button class="btn-submit" id="nc-submit">Post</button>' +
             '</div>';
         panel.classList.add("open");
         panel.querySelector(".panel-close").onclick = function () { panel.classList.remove("open"); };
         document.getElementById("nc-submit").addEventListener("click", function () {
-            var name = document.getElementById("nc-name").value.trim();
+            var nameEl = document.getElementById("nc-name");
+            var name = window.authUser ? window.authUser.name : (nameEl ? nameEl.value.trim() : "Anonymous");
             var body = document.getElementById("nc-body").value.trim();
             if (!body) return;
             fetch("/api/versions/" + versionID + "/comments", {
@@ -110,7 +112,7 @@ document.addEventListener("DOMContentLoaded", function () {
             });
         }
         html += '<div class="reply-form">' +
-            '<input class="comment-input" placeholder="Your name" id="rp-name">' +
+            (window.authUser ? '' : '<input class="comment-input" placeholder="Your name" id="rp-name">') +
             '<textarea class="comment-input" placeholder="Reply..." id="rp-body" rows="2"></textarea>' +
             '<button class="btn-submit" id="rp-submit">Reply</button>' +
             '</div>' +
@@ -120,7 +122,8 @@ document.addEventListener("DOMContentLoaded", function () {
         panel.classList.add("open");
         panel.querySelector(".panel-close").onclick = function () { panel.classList.remove("open"); };
         document.getElementById("rp-submit").addEventListener("click", function () {
-            var name = document.getElementById("rp-name").value.trim();
+            var nameEl = document.getElementById("rp-name");
+            var name = window.authUser ? window.authUser.name : (nameEl ? nameEl.value.trim() : "Anonymous");
             var body = document.getElementById("rp-body").value.trim();
             if (!body) return;
             fetch("/api/comments/" + c.id + "/replies", {

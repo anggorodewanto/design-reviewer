@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"github.com/ab/design-reviewer/internal/auth"
 )
 
 type commentJSON struct {
@@ -111,6 +113,12 @@ func (h *Handler) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Use auth context if available, fall back to request body
+	if name, email := auth.GetUserFromContext(r.Context()); name != "" {
+		req.AuthorName = name
+		req.AuthorEmail = email
+	}
+
 	c, err := h.DB.CreateComment(versionID, req.Page, req.XPercent, req.YPercent, req.AuthorName, req.AuthorEmail, req.Body)
 	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
@@ -149,6 +157,12 @@ func (h *Handler) handleCreateReply(w http.ResponseWriter, r *http.Request) {
 	if req.Body == "" {
 		http.Error(w, "body is required", http.StatusBadRequest)
 		return
+	}
+
+	// Use auth context if available, fall back to request body
+	if name, email := auth.GetUserFromContext(r.Context()); name != "" {
+		req.AuthorName = name
+		req.AuthorEmail = email
 	}
 
 	reply, err := h.DB.CreateReply(commentID, req.AuthorName, req.AuthorEmail, req.Body)

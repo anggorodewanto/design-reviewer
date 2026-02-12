@@ -14,8 +14,10 @@ import (
 	"testing"
 
 	"github.com/ab/design-reviewer/internal/api"
+	authpkg "github.com/ab/design-reviewer/internal/auth"
 	"github.com/ab/design-reviewer/internal/db"
 	"github.com/ab/design-reviewer/internal/storage"
+	"golang.org/x/oauth2"
 )
 
 // testEnv holds all dependencies for a test run.
@@ -1041,4 +1043,336 @@ func TestNewProjectStartsAsDraft(t *testing.T) {
 		}
 	}
 	t.Error("project not found")
+}
+
+// --- Phase 8: Google OAuth ---
+
+// setupWithAuth creates a test environment with auth enabled and a mock OAuth provider.
+func setupWithAuth(t *testing.T) (*testEnv, string) {
+	t.Helper()
+	tmp := t.TempDir()
+
+	database, err := db.New(filepath.Join(tmp, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store := storage.New(filepath.Join(tmp, "uploads"))
+
+	authCfg := &authpkg.Config{
+		ClientID:      "test-client-id",
+		ClientSecret:  "test-secret",
+		RedirectURL:   "http://localhost/auth/google/callback",
+		SessionSecret: "integration-test-secret",
+		BaseURL:       "http://localhost",
+	}
+
+	h := &api.Handler{
+		DB:           database,
+		Storage:      store,
+		TemplatesDir: "web/templates",
+		StaticDir:    "web/static",
+		Auth:         authCfg,
+		OAuthConfig:  &mockOAuthProvider{name: "IntegrationUser", email: "integration@test.com"},
+	}
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(func() {
+		srv.Close()
+		database.Close()
+	})
+
+	// Create a valid session cookie
+	sessionVal, _ := authpkg.SignSession(authCfg.SessionSecret, authpkg.User{Name: "IntegrationUser", Email: "integration@test.com"})
+
+	env := &testEnv{Server: srv, DB: database, Storage: store, TmpDir: tmp}
+	return env, sessionVal
+}
+
+// mockOAuthProvider for integration tests
+type mockOAuthProvider struct {
+	name  string
+	email string
+}
+
+func (m *mockOAuthProvider) AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string {
+	return "https://accounts.google.com/o/oauth2/auth?state=" + state
+}
+
+func (m *mockOAuthProvider) Exchange(r *http.Request, code string) (*oauth2.Token, error) {
+	return &oauth2.Token{AccessToken: "test-token"}, nil
+}
+
+func (m *mockOAuthProvider) GetUserInfo(token *oauth2.Token) (name, email string, err error) {
+	return m.name, m.email, nil
+}
+
+func TestUnauthenticatedRedirectsToLogin(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	resp, err := client.Get(env.Server.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("expected 302, got %d", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/login" {
+		t.Errorf("expected redirect to /login, got %s", loc)
+	}
+}
+
+func TestLoginPageRendersGoogleButton(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	resp, err := http.Get(env.Server.URL + "/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), "Login with Google") {
+		t.Error("login page missing Google login button")
+	}
+}
+
+func TestAuthenticatedAccessToHome(t *testing.T) {
+	env, sessionVal := setupWithAuth(t)
+	req, _ := http.NewRequest("GET", env.Server.URL+"/", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: sessionVal})
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+	if !strings.Contains(body, "IntegrationUser") {
+		t.Error("home page should show user name")
+	}
+	if !strings.Contains(body, "Logout") {
+		t.Error("home page should show logout link")
+	}
+}
+
+func TestAPIReturns401WithoutAuth(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	resp, err := http.Get(env.Server.URL + "/api/projects")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestAPIWithBearerToken(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	// Create a token
+	env.DB.CreateToken("integration-token", "TokenUser", "token@test.com")
+
+	req, _ := http.NewRequest("GET", env.Server.URL+"/api/projects", nil)
+	req.Header.Set("Authorization", "Bearer integration-token")
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestAPIWithSessionCookie(t *testing.T) {
+	env, sessionVal := setupWithAuth(t)
+	req, _ := http.NewRequest("GET", env.Server.URL+"/api/projects", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: sessionVal})
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestLogoutClearsSession(t *testing.T) {
+	env, sessionVal := setupWithAuth(t)
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	req, _ := http.NewRequest("GET", env.Server.URL+"/auth/logout", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: sessionVal})
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("expected 302, got %d", resp.StatusCode)
+	}
+	// Check session cookie is cleared
+	for _, c := range resp.Cookies() {
+		if c.Name == "session" && c.MaxAge != -1 {
+			t.Error("session cookie should be cleared")
+		}
+	}
+}
+
+func TestCommentAuthorFromAuth(t *testing.T) {
+	env, sessionVal := setupWithAuth(t)
+
+	// Upload a project (need token for API)
+	env.DB.CreateToken("upload-token", "Uploader", "up@test.com")
+	z := makeZip(t, map[string]string{"index.html": "<h1>hi</h1>"})
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	mw.WriteField("name", "auth-comment-proj")
+	fw, _ := mw.CreateFormFile("file", "upload.zip")
+	fw.Write(z)
+	mw.Close()
+
+	req, _ := http.NewRequest("POST", env.Server.URL+"/api/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer upload-token")
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var uploadRes map[string]any
+	json.NewDecoder(resp.Body).Decode(&uploadRes)
+	resp.Body.Close()
+	vid := uploadRes["version_id"].(string)
+
+	// Create comment with session cookie — author should come from session
+	commentBody := `{"page":"index.html","x_percent":10,"y_percent":20,"author_name":"ShouldBeIgnored","author_email":"ignored@test.com","body":"auth comment"}`
+	req2, _ := http.NewRequest("POST", env.Server.URL+"/api/versions/"+vid+"/comments", strings.NewReader(commentBody))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.AddCookie(&http.Cookie{Name: "session", Value: sessionVal})
+	resp2, err := (&http.Client{}).Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != 201 {
+		b, _ := io.ReadAll(resp2.Body)
+		t.Fatalf("expected 201, got %d: %s", resp2.StatusCode, b)
+	}
+	var comment map[string]any
+	json.NewDecoder(resp2.Body).Decode(&comment)
+	if comment["author_name"] != "IntegrationUser" {
+		t.Errorf("author_name = %v, want IntegrationUser (from auth)", comment["author_name"])
+	}
+	if comment["author_email"] != "integration@test.com" {
+		t.Errorf("author_email = %v, want integration@test.com", comment["author_email"])
+	}
+}
+
+func TestGoogleLoginRedirect(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := client.Get(env.Server.URL + "/auth/google/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("expected 302, got %d", resp.StatusCode)
+	}
+	loc := resp.Header.Get("Location")
+	if !strings.HasPrefix(loc, "https://accounts.google.com") {
+		t.Errorf("expected Google redirect, got %s", loc)
+	}
+}
+
+func TestTokenExchangeIntegration(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	body := `{"code":"test-auth-code"}`
+	resp, err := http.Post(env.Server.URL+"/api/auth/token", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, b)
+	}
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["token"] == "" {
+		t.Error("missing token")
+	}
+	if result["name"] != "IntegrationUser" {
+		t.Errorf("name = %q, want IntegrationUser", result["name"])
+	}
+
+	// Verify the token works for API access
+	req, _ := http.NewRequest("GET", env.Server.URL+"/api/projects", nil)
+	req.Header.Set("Authorization", "Bearer "+result["token"])
+	resp2, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != 200 {
+		t.Errorf("token should work for API access, got %d", resp2.StatusCode)
+	}
+}
+
+func TestViewerRequiresAuth(t *testing.T) {
+	env, sessionVal := setupWithAuth(t)
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	// Upload a project first
+	env.DB.CreateToken("tok", "U", "u@t.com")
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	mw.WriteField("name", "viewer-auth")
+	fw, _ := mw.CreateFormFile("file", "upload.zip")
+	fw.Write(z)
+	mw.Close()
+	req, _ := http.NewRequest("POST", env.Server.URL+"/api/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, _ := (&http.Client{}).Do(req)
+	var res map[string]any
+	json.NewDecoder(resp.Body).Decode(&res)
+	resp.Body.Close()
+	pid := res["project_id"].(string)
+
+	// Without auth — should redirect
+	resp2, _ := client.Get(env.Server.URL + "/projects/" + pid)
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusFound {
+		t.Errorf("expected 302 without auth, got %d", resp2.StatusCode)
+	}
+
+	// With auth — should work
+	req3, _ := http.NewRequest("GET", env.Server.URL+"/projects/"+pid, nil)
+	req3.AddCookie(&http.Cookie{Name: "session", Value: sessionVal})
+	resp3, _ := (&http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}).Do(req3)
+	defer resp3.Body.Close()
+	if resp3.StatusCode != 200 {
+		t.Errorf("expected 200 with auth, got %d", resp3.StatusCode)
+	}
 }

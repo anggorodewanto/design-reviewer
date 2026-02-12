@@ -450,3 +450,37 @@ func TestListVersionsIsolatedByProject(t *testing.T) {
 		t.Errorf("proj2: expected 1 version, got %d", len(v2))
 	}
 }
+
+// --- Tokens ---
+
+func TestCreateTokenAndGetUserByToken(t *testing.T) {
+	d := newTestDB(t)
+	err := d.CreateToken("tok123", "Alice", "alice@test.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	name, email, err := d.GetUserByToken("tok123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "Alice" || email != "alice@test.com" {
+		t.Errorf("got name=%q email=%q, want Alice alice@test.com", name, email)
+	}
+}
+
+func TestGetUserByTokenNotFound(t *testing.T) {
+	d := newTestDB(t)
+	_, _, err := d.GetUserByToken("nonexistent")
+	if err != sql.ErrNoRows {
+		t.Errorf("expected sql.ErrNoRows, got %v", err)
+	}
+}
+
+func TestCreateTokenDuplicate(t *testing.T) {
+	d := newTestDB(t)
+	d.CreateToken("dup", "A", "a@t.com")
+	err := d.CreateToken("dup", "B", "b@t.com")
+	if err == nil {
+		t.Error("expected error for duplicate token")
+	}
+}

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/ab/design-reviewer/internal/api"
+	"github.com/ab/design-reviewer/internal/auth"
 	"github.com/ab/design-reviewer/internal/db"
 	"github.com/ab/design-reviewer/internal/storage"
 )
@@ -26,6 +28,33 @@ func main() {
 	store := storage.New(*uploads)
 
 	h := &api.Handler{DB: database, Storage: store, TemplatesDir: "web/templates", StaticDir: "web/static"}
+
+	// Configure auth if env vars are set
+	clientID := os.Getenv("GOOGLE_CLIENT_ID")
+	clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+	sessionSecret := os.Getenv("SESSION_SECRET")
+	baseURL := os.Getenv("BASE_URL")
+	if baseURL == "" {
+		baseURL = fmt.Sprintf("http://localhost:%d", *port)
+	}
+
+	if clientID != "" && clientSecret != "" && sessionSecret != "" {
+		cfg := &auth.Config{
+			ClientID:       clientID,
+			ClientSecret:   clientSecret,
+			RedirectURL:    baseURL + "/auth/google/callback",
+			CLIRedirectURL: baseURL + "/auth/google/cli-callback",
+			SessionSecret:  sessionSecret,
+			BaseURL:        baseURL,
+		}
+		h.Auth = cfg
+		oauthCfg := auth.NewGoogleOAuthConfig(*cfg)
+		h.OAuthConfig = &api.GoogleOAuth{Config: oauthCfg}
+		fmt.Println("auth enabled (Google OAuth)")
+	} else {
+		fmt.Println("auth disabled (set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SESSION_SECRET to enable)")
+	}
+
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 

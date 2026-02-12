@@ -43,6 +43,9 @@
     </div>
 </div>
 <div id="comment-panel"></div>
+<script>
+    window.authUser = {{if .UserName}}{name: "{{.UserName}}"}{{else}}null{{end}};
+</script>
 <script src="/static/viewer.js"></script>
 <script src="/static/annotations.js"></script>
 {{end}}

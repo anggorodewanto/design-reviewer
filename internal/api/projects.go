@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ab/design-reviewer/internal/auth"
 	"github.com/ab/design-reviewer/internal/db"
 )
 
@@ -142,8 +143,10 @@ func (h *Handler) handleHome(w http.ResponseWriter, r *http.Request) {
 
 	data := struct {
 		Projects []projectView
+		UserName string
 	}{
 		Projects: toProjectViews(projects),
+		UserName: func() string { n, _ := auth.GetUserFromContext(r.Context()); return n }(),
 	}
 	tmpl.Execute(w, data)
 }

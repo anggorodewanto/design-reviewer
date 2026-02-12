@@ -5,6 +5,8 @@ import (
 	"html/template"
 	"net/http"
 	"sort"
+
+	"github.com/ab/design-reviewer/internal/auth"
 )
 
 func (h *Handler) handleViewer(w http.ResponseWriter, r *http.Request) {
@@ -88,6 +90,7 @@ func (h *Handler) handleViewer(w http.ResponseWriter, r *http.Request) {
 		VersionNum  int
 		Pages       []string
 		DefaultPage string
+		UserName    string
 	}{
 		ProjectName: project.Name,
 		ProjectID:   project.ID,
@@ -97,6 +100,7 @@ func (h *Handler) handleViewer(w http.ResponseWriter, r *http.Request) {
 		VersionNum:  version.VersionNum,
 		Pages:       pages,
 		DefaultPage: defaultPage,
+		UserName:    func() string { n, _ := auth.GetUserFromContext(r.Context()); return n }(),
 	}
 	tmpl.Execute(w, data)
 }

@@ -1,0 +1,164 @@
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"html/template"
+	"net/http"
+	"path/filepath"
+	"strings"
+
+	"github.com/ab/design-reviewer/internal/auth"
+	"golang.org/x/oauth2"
+)
+
+// OAuthProvider abstracts OAuth operations for testability.
+type OAuthProvider interface {
+	AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string
+	Exchange(r *http.Request, code string) (*oauth2.Token, error)
+	GetUserInfo(token *oauth2.Token) (name, email string, err error)
+}
+
+// GoogleOAuth implements OAuthProvider using real Google OAuth.
+type GoogleOAuth struct {
+	Config *oauth2.Config
+}
+
+func (g *GoogleOAuth) AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string {
+	return g.Config.AuthCodeURL(state, opts...)
+}
+
+func (g *GoogleOAuth) Exchange(r *http.Request, code string) (*oauth2.Token, error) {
+	return g.Config.Exchange(r.Context(), code)
+}
+
+func (g *GoogleOAuth) GetUserInfo(token *oauth2.Token) (name, email string, err error) {
+	return auth.GetUserInfo(token)
+}
+
+func (h *Handler) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	tmpl, err := template.ParseFiles(
+		filepath.Join(h.TemplatesDir, "layout.html"),
+		filepath.Join(h.TemplatesDir, "login.html"),
+	)
+	if err != nil {
+		http.Error(w, "template error", http.StatusInternalServerError)
+		return
+	}
+	tmpl.Execute(w, struct{ UserName string }{})
+}
+
+func (h *Handler) handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
+	state := auth.GenerateState()
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oauth_state",
+		Value:    state,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	url := h.OAuthConfig.AuthCodeURL(state)
+	http.Redirect(w, r, url, http.StatusFound)
+}
+
+func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
+	// Validate state
+	stateCookie, err := r.Cookie("oauth_state")
+	if err != nil || stateCookie.Value != r.URL.Query().Get("state") {
+		http.Error(w, "invalid state", http.StatusBadRequest)
+		return
+	}
+	// Clear state cookie
+	http.SetCookie(w, &http.Cookie{Name: "oauth_state", Value: "", Path: "/", MaxAge: -1})
+
+	code := r.URL.Query().Get("code")
+	token, err := h.OAuthConfig.Exchange(r, code)
+	if err != nil {
+		http.Error(w, "oauth exchange failed", http.StatusInternalServerError)
+		return
+	}
+
+	name, email, err := h.OAuthConfig.GetUserInfo(token)
+	if err != nil {
+		http.Error(w, "failed to get user info", http.StatusInternalServerError)
+		return
+	}
+
+	// Check if this is a CLI flow (state contains ":port")
+	state := stateCookie.Value
+	if idx := strings.LastIndex(state, ":"); idx > 0 {
+		port := state[idx+1:]
+		apiToken := auth.GenerateAPIToken()
+		if err := h.DB.CreateToken(apiToken, name, email); err != nil {
+			http.Error(w, "failed to create token", http.StatusInternalServerError)
+			return
+		}
+		redirectURL := fmt.Sprintf("http://localhost:%s/callback?token=%s", port, apiToken)
+		http.Redirect(w, r, redirectURL, http.StatusFound)
+		return
+	}
+
+	if err := auth.SetSessionCookie(w, h.Auth.SessionSecret, auth.User{Name: name, Email: email}); err != nil {
+		http.Error(w, "session error", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+func (h *Handler) handleCLILogin(w http.ResponseWriter, r *http.Request) {
+	port := r.URL.Query().Get("port")
+	if port == "" {
+		http.Error(w, "missing port parameter", http.StatusBadRequest)
+		return
+	}
+	state := auth.GenerateState() + ":" + port
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oauth_state",
+		Value:    state,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	url := h.OAuthConfig.AuthCodeURL(state)
+	http.Redirect(w, r, url, http.StatusFound)
+}
+
+func (h *Handler) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Code == "" {
+		http.Error(w, "missing code", http.StatusBadRequest)
+		return
+	}
+
+	token, err := h.OAuthConfig.Exchange(r, req.Code)
+	if err != nil {
+		http.Error(w, "oauth exchange failed", http.StatusInternalServerError)
+		return
+	}
+
+	name, email, err := h.OAuthConfig.GetUserInfo(token)
+	if err != nil {
+		http.Error(w, "failed to get user info", http.StatusInternalServerError)
+		return
+	}
+
+	apiToken := auth.GenerateAPIToken()
+	if err := h.DB.CreateToken(apiToken, name, email); err != nil {
+		http.Error(w, "failed to create token", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"token": apiToken,
+		"name":  name,
+		"email": email,
+	})
+}
+
+func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
+	auth.ClearSessionCookie(w)
+	http.Redirect(w, r, "/login", http.StatusFound)
+}

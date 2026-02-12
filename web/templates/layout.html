@@ -7,6 +7,12 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+    {{if .UserName}}
+    <nav class="top-bar">
+        <span class="user-name">{{.UserName}}</span>
+        <a href="/auth/logout" class="logout-link">Logout</a>
+    </nav>
+    {{end}}
     {{template "content" .}}
 </body>
 </html>
