@@ -1,6 +1,7 @@
 package db
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 )
@@ -13,6 +14,142 @@ func newTestDB(t *testing.T) *DB {
 	}
 	t.Cleanup(func() { d.Close() })
 	return d
+}
+
+func TestGetProject(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("gp")
+	got, err := d.GetProject(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "gp" {
+		t.Errorf("name = %q, want gp", got.Name)
+	}
+}
+
+func TestGetProjectNotFound(t *testing.T) {
+	d := newTestDB(t)
+	_, err := d.GetProject("nonexistent")
+	if err != sql.ErrNoRows {
+		t.Errorf("expected ErrNoRows, got %v", err)
+	}
+}
+
+func TestGetProjectByName(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("byname")
+	got, err := d.GetProjectByName("byname")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != p.ID {
+		t.Errorf("id mismatch")
+	}
+}
+
+func TestGetProjectByNameNotFound(t *testing.T) {
+	d := newTestDB(t)
+	_, err := d.GetProjectByName("nope")
+	if err != sql.ErrNoRows {
+		t.Errorf("expected ErrNoRows, got %v", err)
+	}
+}
+
+func TestListProjects(t *testing.T) {
+	d := newTestDB(t)
+	d.CreateProject("a")
+	d.CreateProject("b")
+	projects, err := d.ListProjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 2 {
+		t.Errorf("expected 2, got %d", len(projects))
+	}
+}
+
+func TestListProjectsEmpty(t *testing.T) {
+	d := newTestDB(t)
+	projects, err := d.ListProjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 0 {
+		t.Errorf("expected 0, got %d", len(projects))
+	}
+}
+
+func TestUpdateProjectStatus(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("st")
+	if err := d.UpdateProjectStatus(p.ID, "in_review"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := d.GetProject(p.ID)
+	if got.Status != "in_review" {
+		t.Errorf("status = %q, want in_review", got.Status)
+	}
+}
+
+func TestUpdateProjectStatusInvalid(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("st2")
+	if err := d.UpdateProjectStatus(p.ID, "bogus"); err == nil {
+		t.Error("expected error for invalid status")
+	}
+}
+
+func TestUpdateProjectStatusNotFound(t *testing.T) {
+	d := newTestDB(t)
+	err := d.UpdateProjectStatus("nonexistent", "draft")
+	if err != sql.ErrNoRows {
+		t.Errorf("expected ErrNoRows, got %v", err)
+	}
+}
+
+func TestGetVersion(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("vp")
+	v, _ := d.CreateVersion(p.ID, "/path")
+	got, err := d.GetVersion(v.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.VersionNum != 1 || got.ProjectID != p.ID {
+		t.Errorf("unexpected version: %+v", got)
+	}
+}
+
+func TestGetVersionNotFound(t *testing.T) {
+	d := newTestDB(t)
+	_, err := d.GetVersion("nonexistent")
+	if err != sql.ErrNoRows {
+		t.Errorf("expected ErrNoRows, got %v", err)
+	}
+}
+
+func TestGetLatestVersion(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("lv")
+	d.CreateVersion(p.ID, "/v1")
+	d.CreateVersion(p.ID, "/v2")
+	got, err := d.GetLatestVersion(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.VersionNum != 2 {
+		t.Errorf("expected v2, got v%d", got.VersionNum)
+	}
+}
+
+func TestGetLatestVersionNotFound(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("nover")
+	_, err := d.GetLatestVersion(p.ID)
+	if err != sql.ErrNoRows {
+		t.Errorf("expected ErrNoRows, got %v", err)
+	}
 }
 
 func TestListProjectsWithVersionCountEmpty(t *testing.T) {
@@ -257,5 +394,59 @@ func TestGetRepliesOrder(t *testing.T) {
 	}
 	if replies[0].Body != "first" || replies[1].Body != "second" {
 		t.Errorf("replies out of order: %q, %q", replies[0].Body, replies[1].Body)
+	}
+}
+
+// --- Phase 6: Version History ---
+
+func TestListVersionsEmpty(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("empty")
+	versions, err := d.ListVersions(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 0 {
+		t.Errorf("expected 0 versions, got %d", len(versions))
+	}
+}
+
+func TestListVersionsOrdered(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("ordered")
+	d.CreateVersion(p.ID, "/v1")
+	d.CreateVersion(p.ID, "/v2")
+	d.CreateVersion(p.ID, "/v3")
+
+	versions, err := d.ListVersions(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 3 {
+		t.Fatalf("expected 3 versions, got %d", len(versions))
+	}
+	if versions[0].VersionNum != 3 {
+		t.Errorf("first should be v3, got v%d", versions[0].VersionNum)
+	}
+	if versions[2].VersionNum != 1 {
+		t.Errorf("last should be v1, got v%d", versions[2].VersionNum)
+	}
+}
+
+func TestListVersionsIsolatedByProject(t *testing.T) {
+	d := newTestDB(t)
+	p1, _ := d.CreateProject("proj1")
+	p2, _ := d.CreateProject("proj2")
+	d.CreateVersion(p1.ID, "/a")
+	d.CreateVersion(p1.ID, "/b")
+	d.CreateVersion(p2.ID, "/c")
+
+	v1, _ := d.ListVersions(p1.ID)
+	v2, _ := d.ListVersions(p2.ID)
+	if len(v1) != 2 {
+		t.Errorf("proj1: expected 2 versions, got %d", len(v1))
+	}
+	if len(v2) != 1 {
+		t.Errorf("proj2: expected 1 version, got %d", len(v2))
 	}
 }

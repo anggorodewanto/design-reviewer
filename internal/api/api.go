@@ -17,6 +17,7 @@ type DataStore interface {
 	CreateVersion(projectID, storagePath string) (*db.Version, error)
 	GetVersion(id string) (*db.Version, error)
 	GetLatestVersion(projectID string) (*db.Version, error)
+	ListVersions(projectID string) ([]db.Version, error)
 	CreateComment(versionID, page string, xPct, yPct float64, authorName, authorEmail, body string) (*db.Comment, error)
 	GetCommentsForVersion(versionID string) ([]db.Comment, error)
 	GetUnresolvedCommentsUpTo(versionID string) ([]db.Comment, error)
@@ -39,6 +40,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/upload", h.handleUpload)
 	mux.HandleFunc("GET /designs/{version_id}/{filepath...}", h.handleDesignFile)
 	mux.HandleFunc("GET /projects/{id}", h.handleViewer)
+	// Phase 6: Version History
+	mux.HandleFunc("GET /api/projects/{id}/versions", h.handleListVersions)
 	// Phase 5: Annotations
 	mux.HandleFunc("GET /api/versions/{id}/comments", h.handleGetComments)
 	mux.HandleFunc("POST /api/versions/{id}/comments", h.handleCreateComment)

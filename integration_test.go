@@ -708,3 +708,172 @@ func TestViewerHasAnnotationElements(t *testing.T) {
 		}
 	}
 }
+
+// --- Phase 6: Version History ---
+
+func TestListVersionsAPI(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := uploadZip(t, env.Server.URL, "ver-list", z)
+	pid := res["project_id"].(string)
+	uploadZip(t, env.Server.URL, "ver-list", z)
+
+	resp, err := http.Get(env.Server.URL + "/api/projects/" + pid + "/versions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected application/json, got %s", ct)
+	}
+
+	var versions []map[string]any
+	json.NewDecoder(resp.Body).Decode(&versions)
+	if len(versions) != 2 {
+		t.Fatalf("expected 2 versions, got %d", len(versions))
+	}
+	// Newest first
+	if versions[0]["version_num"].(float64) != 2 {
+		t.Errorf("first version should be 2, got %v", versions[0]["version_num"])
+	}
+	if versions[1]["version_num"].(float64) != 1 {
+		t.Errorf("second version should be 1, got %v", versions[1]["version_num"])
+	}
+	// Check pages field
+	pages := versions[0]["pages"].([]any)
+	if len(pages) == 0 {
+		t.Error("expected pages in version response")
+	}
+}
+
+func TestListVersionsAPIEmpty(t *testing.T) {
+	env := setup(t)
+	p, _ := env.DB.CreateProject("no-versions")
+
+	resp, err := http.Get(env.Server.URL + "/api/projects/" + p.ID + "/versions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var versions []map[string]any
+	json.NewDecoder(resp.Body).Decode(&versions)
+	if len(versions) != 0 {
+		t.Errorf("expected 0 versions, got %d", len(versions))
+	}
+}
+
+func TestViewerHasVersionListContainer(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := uploadZip(t, env.Server.URL, "ver-viewer", z)
+	pid := res["project_id"].(string)
+
+	resp, err := http.Get(env.Server.URL + "/projects/" + pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+
+	checks := []string{"version-list", "data-project-id", "Versions"}
+	for _, check := range checks {
+		if !strings.Contains(body, check) {
+			t.Errorf("viewer HTML missing %q", check)
+		}
+	}
+}
+
+func TestCommentCarryOverResolvedOnPreviousHidden(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "x"})
+
+	// Upload v1
+	res1 := uploadZip(t, env.Server.URL, "carry2", z)
+	vid1 := res1["version_id"].(string)
+
+	// Create comment on v1 and resolve it
+	body := `{"page":"index.html","x_percent":10,"y_percent":20,"author_name":"A","author_email":"a@t.com","body":"will resolve"}`
+	resp, _ := http.Post(env.Server.URL+"/api/versions/"+vid1+"/comments", "application/json", strings.NewReader(body))
+	var created map[string]any
+	json.NewDecoder(resp.Body).Decode(&created)
+	resp.Body.Close()
+	cid := created["id"].(string)
+
+	// Resolve it
+	req, _ := http.NewRequest("PATCH", env.Server.URL+"/api/comments/"+cid+"/resolve", nil)
+	r, _ := (&http.Client{}).Do(req)
+	r.Body.Close()
+
+	// Upload v2
+	res2 := uploadZip(t, env.Server.URL, "carry2", z)
+	vid2 := res2["version_id"].(string)
+
+	// Upload v3
+	res3 := uploadZip(t, env.Server.URL, "carry2", z)
+	vid3 := res3["version_id"].(string)
+
+	// v2 should still show the resolved comment (it was resolved on v1, but v1 comments show on v1)
+	resp2, _ := http.Get(env.Server.URL + "/api/versions/" + vid2 + "/comments")
+	var comments2 []map[string]any
+	json.NewDecoder(resp2.Body).Decode(&comments2)
+	resp2.Body.Close()
+	if len(comments2) != 0 {
+		t.Errorf("v2: expected 0 comments (resolved on previous version), got %d", len(comments2))
+	}
+
+	// v3 should also not show it
+	resp3, _ := http.Get(env.Server.URL + "/api/versions/" + vid3 + "/comments")
+	var comments3 []map[string]any
+	json.NewDecoder(resp3.Body).Decode(&comments3)
+	resp3.Body.Close()
+	if len(comments3) != 0 {
+		t.Errorf("v3: expected 0 comments, got %d", len(comments3))
+	}
+
+	// But v1 should still show it (resolved on current version)
+	resp1, _ := http.Get(env.Server.URL + "/api/versions/" + vid1 + "/comments")
+	var comments1 []map[string]any
+	json.NewDecoder(resp1.Body).Decode(&comments1)
+	resp1.Body.Close()
+	if len(comments1) != 1 {
+		t.Fatalf("v1: expected 1 comment (resolved on this version), got %d", len(comments1))
+	}
+	if comments1[0]["resolved"] != true {
+		t.Error("v1: comment should be resolved")
+	}
+}
+
+func TestVersionListResponseFields(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "a", "about.html": "b"})
+	res := uploadZip(t, env.Server.URL, "fields-proj", z)
+	pid := res["project_id"].(string)
+
+	resp, err := http.Get(env.Server.URL + "/api/projects/" + pid + "/versions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var versions []map[string]any
+	json.NewDecoder(resp.Body).Decode(&versions)
+	if len(versions) != 1 {
+		t.Fatalf("expected 1 version, got %d", len(versions))
+	}
+	v := versions[0]
+	for _, field := range []string{"id", "version_num", "created_at", "pages"} {
+		if v[field] == nil {
+			t.Errorf("missing field %q", field)
+		}
+	}
+	pages := v["pages"].([]any)
+	if len(pages) != 2 {
+		t.Errorf("expected 2 pages, got %d", len(pages))
+	}
+}

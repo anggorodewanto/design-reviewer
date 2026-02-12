@@ -21,6 +21,7 @@ type mockDB struct {
 	createReplyErr      error
 	toggleResolveErr    error
 	toggleResolveResult bool
+	listVersionsErr     error
 }
 
 func (m *mockDB) GetUnresolvedCommentsUpTo(versionID string) ([]db.Comment, error) {
@@ -63,6 +64,13 @@ func (m *mockDB) ToggleResolve(commentID string) (bool, error) {
 		return false, m.toggleResolveErr
 	}
 	return m.DataStore.ToggleResolve(commentID)
+}
+
+func (m *mockDB) ListVersions(projectID string) ([]db.Version, error) {
+	if m.listVersionsErr != nil {
+		return nil, m.listVersionsErr
+	}
+	return m.DataStore.ListVersions(projectID)
 }
 
 var errDB = errors.New("db failure")

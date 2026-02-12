@@ -180,5 +180,13 @@ document.addEventListener("DOMContentLoaded", function () {
         renderPins();
     });
 
+    // Expose reload hook for version switching
+    window.reloadComments = function (newVersionID) {
+        versionID = newVersionID;
+        currentPage = getCurrentPage();
+        panel.classList.remove("open");
+        loadComments();
+    };
+
     loadComments();
 });
