@@ -42,6 +42,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /projects/{id}", h.handleViewer)
 	// Phase 6: Version History
 	mux.HandleFunc("GET /api/projects/{id}/versions", h.handleListVersions)
+	// Phase 7: Status Workflow
+	mux.HandleFunc("PATCH /api/projects/{id}/status", h.handleUpdateStatus)
 	// Phase 5: Annotations
 	mux.HandleFunc("GET /api/versions/{id}/comments", h.handleGetComments)
 	mux.HandleFunc("POST /api/versions/{id}/comments", h.handleCreateComment)

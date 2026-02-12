@@ -3,7 +3,12 @@
     <header class="viewer-header">
         <a href="/" class="viewer-back">&larr; Projects</a>
         <h1 class="viewer-title">{{.ProjectName}}</h1>
-        <span class="badge badge-{{.Status}}">{{.StatusLabel}}</span>
+        <select id="status-select" class="status-select badge badge-{{.Status}}">
+            <option value="draft"{{if eq .Status "draft"}} selected{{end}}>Draft</option>
+            <option value="in_review"{{if eq .Status "in_review"}} selected{{end}}>In Review</option>
+            <option value="approved"{{if eq .Status "approved"}} selected{{end}}>Approved</option>
+            <option value="handed_off"{{if eq .Status "handed_off"}} selected{{end}}>Handed Off</option>
+        </select>
     </header>
     <div class="viewer-body">
         <aside class="viewer-sidebar">

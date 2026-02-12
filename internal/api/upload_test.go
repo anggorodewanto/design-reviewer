@@ -231,6 +231,7 @@ func TestRegisterRoutes(t *testing.T) {
 		{"GET", "/projects/test-id"},
 		{"GET", "/api/projects/test-id/versions"},
 		{"GET", "/api/versions/test-id/comments"},
+		{"PATCH", "/api/projects/test-id/status"},
 	}
 	for _, r := range routes {
 		req := httptest.NewRequest(r.method, r.path, nil)

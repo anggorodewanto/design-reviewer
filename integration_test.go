@@ -877,3 +877,168 @@ func TestVersionListResponseFields(t *testing.T) {
 		t.Errorf("expected 2 pages, got %d", len(pages))
 	}
 }
+
+// --- Phase 7: Status Workflow ---
+
+func TestUpdateStatusAPI(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := uploadZip(t, env.Server.URL, "status-proj", z)
+	pid := res["project_id"].(string)
+
+	// Update to in_review
+	req, _ := http.NewRequest("PATCH", env.Server.URL+"/api/projects/"+pid+"/status", strings.NewReader(`{"status":"in_review"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, b)
+	}
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["id"] != pid {
+		t.Errorf("expected id=%s, got %s", pid, result["id"])
+	}
+	if result["status"] != "in_review" {
+		t.Errorf("expected status=in_review, got %s", result["status"])
+	}
+}
+
+func TestUpdateStatusCycleAllStatuses(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := uploadZip(t, env.Server.URL, "cycle-proj", z)
+	pid := res["project_id"].(string)
+	client := &http.Client{}
+
+	for _, status := range []string{"in_review", "approved", "handed_off", "draft"} {
+		req, _ := http.NewRequest("PATCH", env.Server.URL+"/api/projects/"+pid+"/status", strings.NewReader(`{"status":"`+status+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			t.Errorf("status %q: expected 200, got %d", status, resp.StatusCode)
+		}
+	}
+
+	// Verify final status via project list
+	resp, _ := http.Get(env.Server.URL + "/api/projects")
+	defer resp.Body.Close()
+	var projects []map[string]any
+	json.NewDecoder(resp.Body).Decode(&projects)
+	for _, p := range projects {
+		if p["name"] == "cycle-proj" {
+			if p["status"] != "draft" {
+				t.Errorf("expected final status=draft, got %v", p["status"])
+			}
+			return
+		}
+	}
+	t.Error("project not found in list")
+}
+
+func TestUpdateStatusInvalidRejected(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := uploadZip(t, env.Server.URL, "invalid-status", z)
+	pid := res["project_id"].(string)
+
+	req, _ := http.NewRequest("PATCH", env.Server.URL+"/api/projects/"+pid+"/status", strings.NewReader(`{"status":"bogus"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestUpdateStatusNotFound(t *testing.T) {
+	env := setup(t)
+
+	req, _ := http.NewRequest("PATCH", env.Server.URL+"/api/projects/nonexistent/status", strings.NewReader(`{"status":"draft"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestStatusReflectedOnHomePage(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := uploadZip(t, env.Server.URL, "home-status", z)
+	pid := res["project_id"].(string)
+
+	// Change to approved
+	req, _ := http.NewRequest("PATCH", env.Server.URL+"/api/projects/"+pid+"/status", strings.NewReader(`{"status":"approved"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r, _ := (&http.Client{}).Do(req)
+	r.Body.Close()
+
+	// Check home page
+	resp, _ := http.Get(env.Server.URL + "/")
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), "badge-approved") {
+		t.Error("home page should show badge-approved after status change")
+	}
+}
+
+func TestStatusReflectedOnViewerPage(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := uploadZip(t, env.Server.URL, "viewer-status", z)
+	pid := res["project_id"].(string)
+
+	// Change to handed_off
+	req, _ := http.NewRequest("PATCH", env.Server.URL+"/api/projects/"+pid+"/status", strings.NewReader(`{"status":"handed_off"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r, _ := (&http.Client{}).Do(req)
+	r.Body.Close()
+
+	// Check viewer page
+	resp, _ := http.Get(env.Server.URL + "/projects/" + pid)
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+	if !strings.Contains(body, "badge-handed_off") {
+		t.Error("viewer page should show badge-handed_off after status change")
+	}
+	if !strings.Contains(body, "status-select") {
+		t.Error("viewer page should have status dropdown")
+	}
+}
+
+func TestNewProjectStartsAsDraft(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	uploadZip(t, env.Server.URL, "draft-proj", z)
+
+	resp, _ := http.Get(env.Server.URL + "/api/projects")
+	defer resp.Body.Close()
+	var projects []map[string]any
+	json.NewDecoder(resp.Body).Decode(&projects)
+	for _, p := range projects {
+		if p["name"] == "draft-proj" {
+			if p["status"] != "draft" {
+				t.Errorf("new project should be draft, got %v", p["status"])
+			}
+			return
+		}
+	}
+	t.Error("project not found")
+}

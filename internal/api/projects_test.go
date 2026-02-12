@@ -153,3 +153,88 @@ func TestRelativeTime(t *testing.T) {
 		})
 	}
 }
+
+// --- Phase 7: Status Workflow ---
+
+func TestHandleUpdateStatusSuccess(t *testing.T) {
+	h := setupTestHandler(t)
+	p, _ := h.DB.CreateProject("proj")
+
+	req := httptest.NewRequest("PATCH", "/api/projects/"+p.ID+"/status", strings.NewReader(`{"status":"in_review"}`))
+	req.SetPathValue("id", p.ID)
+	w := httptest.NewRecorder()
+	h.handleUpdateStatus(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var resp map[string]string
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["id"] != p.ID {
+		t.Errorf("expected id=%s, got %s", p.ID, resp["id"])
+	}
+	if resp["status"] != "in_review" {
+		t.Errorf("expected status=in_review, got %s", resp["status"])
+	}
+
+	// Verify DB was updated
+	updated, _ := h.DB.GetProject(p.ID)
+	if updated.Status != "in_review" {
+		t.Errorf("DB status not updated, got %s", updated.Status)
+	}
+}
+
+func TestHandleUpdateStatusAllStatuses(t *testing.T) {
+	h := setupTestHandler(t)
+	p, _ := h.DB.CreateProject("proj")
+
+	for _, s := range []string{"in_review", "approved", "handed_off", "draft"} {
+		req := httptest.NewRequest("PATCH", "/api/projects/"+p.ID+"/status", strings.NewReader(`{"status":"`+s+`"}`))
+		req.SetPathValue("id", p.ID)
+		w := httptest.NewRecorder()
+		h.handleUpdateStatus(w, req)
+		if w.Code != 200 {
+			t.Errorf("status %q: expected 200, got %d", s, w.Code)
+		}
+	}
+}
+
+func TestHandleUpdateStatusInvalid(t *testing.T) {
+	h := setupTestHandler(t)
+	p, _ := h.DB.CreateProject("proj")
+
+	req := httptest.NewRequest("PATCH", "/api/projects/"+p.ID+"/status", strings.NewReader(`{"status":"bogus"}`))
+	req.SetPathValue("id", p.ID)
+	w := httptest.NewRecorder()
+	h.handleUpdateStatus(w, req)
+
+	if w.Code != 400 {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandleUpdateStatusNotFound(t *testing.T) {
+	h := setupTestHandler(t)
+
+	req := httptest.NewRequest("PATCH", "/api/projects/nonexistent/status", strings.NewReader(`{"status":"draft"}`))
+	req.SetPathValue("id", "nonexistent")
+	w := httptest.NewRecorder()
+	h.handleUpdateStatus(w, req)
+
+	if w.Code != 404 {
+		t.Errorf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestHandleUpdateStatusBadJSON(t *testing.T) {
+	h := setupTestHandler(t)
+
+	req := httptest.NewRequest("PATCH", "/api/projects/x/status", strings.NewReader(`not json`))
+	req.SetPathValue("id", "x")
+	w := httptest.NewRecorder()
+	h.handleUpdateStatus(w, req)
+
+	if w.Code != 400 {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}

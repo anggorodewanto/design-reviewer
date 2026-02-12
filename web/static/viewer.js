@@ -78,4 +78,25 @@ document.addEventListener("DOMContentLoaded", function () {
             frame.src = "/designs/" + currentVersionID + "/" + btn.dataset.page;
         });
     }
+
+    // Status change
+    var statusSelect = document.getElementById("status-select");
+    if (statusSelect) {
+        statusSelect.addEventListener("change", function () {
+            var status = statusSelect.value;
+            fetch("/api/projects/" + projectID + "/status", {
+                method: "PATCH",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({status: status})
+            }).then(function (r) {
+                if (!r.ok) {
+                    statusSelect.value = statusSelect.dataset.prev;
+                    return;
+                }
+                statusSelect.className = "status-select badge badge-" + status;
+                statusSelect.dataset.prev = status;
+            });
+        });
+        statusSelect.dataset.prev = statusSelect.value;
+    }
 });

@@ -45,6 +45,12 @@ a:hover { text-decoration: underline; }
 .badge-approved { background: #dcfce7; color: #166534; }
 .badge-handed_off { background: #ede9fe; color: #6b21a8; }
 
+.status-select {
+    cursor: pointer;
+    border: none;
+    appearance: auto;
+}
+
 .empty {
     padding: 3rem;
     text-align: center;
