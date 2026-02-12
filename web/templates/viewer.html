@@ -1,0 +1,42 @@
+{{define "content"}}
+<div class="viewer-layout" data-version-id="{{.VersionID}}">
+    <header class="viewer-header">
+        <a href="/" class="viewer-back">&larr; Projects</a>
+        <h1 class="viewer-title">{{.ProjectName}}</h1>
+        <span class="badge badge-{{.Status}}">{{.StatusLabel}}</span>
+    </header>
+    <div class="viewer-body">
+        <aside class="viewer-sidebar">
+            <div class="sidebar-section">
+                <h3>Version {{.VersionNum}}</h3>
+            </div>
+        </aside>
+        <main class="viewer-main">
+            {{if gt (len .Pages) 1}}
+            <div class="page-tabs" id="page-tabs">
+                {{range .Pages}}
+                <button class="page-tab{{if eq . $.DefaultPage}} active{{end}}" data-page="{{.}}">{{.}}</button>
+                {{end}}
+            </div>
+            {{end}}
+            <div class="annotation-filter">
+                <button class="filter-btn active" data-filter="all">All</button>
+                <button class="filter-btn" data-filter="open">Open</button>
+                <button class="filter-btn" data-filter="resolved">Resolved</button>
+            </div>
+            <div class="iframe-wrapper">
+                <div id="pin-overlay"></div>
+                <iframe
+                    id="design-frame"
+                    class="viewer-iframe"
+                    src="/designs/{{.VersionID}}/{{.DefaultPage}}"
+                    sandbox="allow-same-origin"
+                ></iframe>
+            </div>
+        </main>
+    </div>
+</div>
+<div id="comment-panel"></div>
+<script src="/static/viewer.js"></script>
+<script src="/static/annotations.js"></script>
+{{end}}

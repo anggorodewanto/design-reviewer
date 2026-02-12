@@ -163,6 +163,36 @@ func (d *DB) ListProjects() ([]Project, error) {
 	return projects, rows.Err()
 }
 
+type ProjectWithVersionCount struct {
+	ID           string
+	Name         string
+	Status       string
+	VersionCount int
+	UpdatedAt    time.Time
+}
+
+func (d *DB) ListProjectsWithVersionCount() ([]ProjectWithVersionCount, error) {
+	rows, err := d.Query(`
+		SELECT p.id, p.name, p.status, COUNT(v.id) AS version_count, p.updated_at
+		FROM projects p
+		LEFT JOIN versions v ON v.project_id = p.id
+		GROUP BY p.id
+		ORDER BY p.updated_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var projects []ProjectWithVersionCount
+	for rows.Next() {
+		var p ProjectWithVersionCount
+		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &p.VersionCount, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		projects = append(projects, p)
+	}
+	return projects, rows.Err()
+}
+
 var validStatuses = map[string]bool{
 	"draft": true, "in_review": true, "approved": true, "handed_off": true,
 }
@@ -308,16 +338,13 @@ func (d *DB) GetUnresolvedCommentsUpTo(versionID string) ([]Comment, error) {
 	return comments, rows.Err()
 }
 
-func (d *DB) ToggleResolve(commentID string) error {
-	res, err := d.Exec(`UPDATE comments SET resolved = NOT resolved WHERE id = ?`, commentID)
+func (d *DB) ToggleResolve(commentID string) (bool, error) {
+	var resolved bool
+	err := d.QueryRow(`UPDATE comments SET resolved = NOT resolved WHERE id = ? RETURNING resolved`, commentID).Scan(&resolved)
 	if err != nil {
-		return err
+		return false, err
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	return resolved, nil
 }
 
 // --- Replies ---

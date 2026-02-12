@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ab/design-reviewer/internal/api"
@@ -38,7 +39,7 @@ func setup(t *testing.T) *testEnv {
 
 	store := storage.New(filepath.Join(tmp, "uploads"))
 
-	h := &api.Handler{DB: database, Storage: store}
+	h := &api.Handler{DB: database, Storage: store, TemplatesDir: "web/templates", StaticDir: "web/static"}
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 
@@ -249,5 +250,461 @@ func TestStorageSavesFilesToDisk(t *testing.T) {
 	}
 	if string(data) != "disk-check" {
 		t.Errorf("file content = %q, want %q", data, "disk-check")
+	}
+}
+
+// --- Phase 3: Project List ---
+
+func TestListProjectsAPIEmpty(t *testing.T) {
+	env := setup(t)
+	resp, err := http.Get(env.Server.URL + "/api/projects")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var projects []map[string]any
+	json.NewDecoder(resp.Body).Decode(&projects)
+	if len(projects) != 0 {
+		t.Errorf("expected empty array, got %d items", len(projects))
+	}
+}
+
+func TestListProjectsAPIAfterUpload(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "<h1>hi</h1>"})
+	uploadZip(t, env.Server.URL, "proj-a", z)
+	uploadZip(t, env.Server.URL, "proj-b", z)
+	// Upload second version for proj-a
+	uploadZip(t, env.Server.URL, "proj-a", z)
+
+	resp, err := http.Get(env.Server.URL + "/api/projects")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var projects []map[string]any
+	json.NewDecoder(resp.Body).Decode(&projects)
+	if len(projects) != 2 {
+		t.Fatalf("expected 2 projects, got %d", len(projects))
+	}
+
+	counts := map[string]float64{}
+	for _, p := range projects {
+		counts[p["name"].(string)] = p["version_count"].(float64)
+	}
+	if counts["proj-a"] != 2 {
+		t.Errorf("proj-a: expected version_count=2, got %v", counts["proj-a"])
+	}
+	if counts["proj-b"] != 1 {
+		t.Errorf("proj-b: expected version_count=1, got %v", counts["proj-b"])
+	}
+}
+
+func TestListProjectsAPIResponseFormat(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	uploadZip(t, env.Server.URL, "format-test", z)
+
+	resp, err := http.Get(env.Server.URL + "/api/projects")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %s", ct)
+	}
+
+	var projects []map[string]any
+	json.NewDecoder(resp.Body).Decode(&projects)
+	p := projects[0]
+	for _, field := range []string{"id", "name", "status", "version_count", "updated_at"} {
+		if p[field] == nil {
+			t.Errorf("missing field %q in response", field)
+		}
+	}
+}
+
+func TestHomePageRendersEmpty(t *testing.T) {
+	env := setup(t)
+	resp, err := http.Get(env.Server.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+	if !strings.Contains(body, "Design Reviewer") {
+		t.Error("missing page title")
+	}
+	if !strings.Contains(body, "No projects yet") {
+		t.Error("missing empty state message")
+	}
+}
+
+func TestHomePageRendersProjects(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	uploadZip(t, env.Server.URL, "home-test", z)
+
+	resp, err := http.Get(env.Server.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+	if !strings.Contains(body, "home-test") {
+		t.Error("missing project name in home page")
+	}
+	if !strings.Contains(body, "badge-draft") {
+		t.Error("missing status badge")
+	}
+}
+
+func TestStaticFileServing(t *testing.T) {
+	env := setup(t)
+	resp, err := http.Get(env.Server.URL + "/static/style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), "badge-draft") {
+		t.Error("style.css missing expected content")
+	}
+}
+
+// --- Phase 4: Design Viewer ---
+
+func TestViewerRendersDesign(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "<h1>hello</h1>", "style.css": "body{}"})
+	res := uploadZip(t, env.Server.URL, "viewer-proj", z)
+	pid := res["project_id"].(string)
+	vid := res["version_id"].(string)
+
+	resp, err := http.Get(env.Server.URL + "/projects/" + pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+	if !strings.Contains(body, "viewer-proj") {
+		t.Error("missing project name")
+	}
+	if !strings.Contains(body, vid) {
+		t.Error("missing version ID in iframe src")
+	}
+	if !strings.Contains(body, `sandbox="allow-same-origin"`) {
+		t.Error("missing sandbox attribute on iframe")
+	}
+}
+
+func TestViewerMultiPageTabs(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{
+		"index.html": "<h1>home</h1>",
+		"about.html": "<h1>about</h1>",
+	})
+	res := uploadZip(t, env.Server.URL, "multi-page", z)
+	pid := res["project_id"].(string)
+
+	resp, err := http.Get(env.Server.URL + "/projects/" + pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+	if !strings.Contains(body, "page-tabs") {
+		t.Error("missing page tabs")
+	}
+	if !strings.Contains(body, "about.html") {
+		t.Error("missing about.html tab")
+	}
+	if !strings.Contains(body, "index.html") {
+		t.Error("missing index.html tab")
+	}
+}
+
+func TestViewerWithVersionParam(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "v1"})
+	res := uploadZip(t, env.Server.URL, "ver-proj", z)
+	pid := res["project_id"].(string)
+	vid1 := res["version_id"].(string)
+
+	// Upload v2
+	z2 := makeZip(t, map[string]string{"index.html": "v2"})
+	uploadZip(t, env.Server.URL, "ver-proj", z2)
+
+	// Request with explicit version=v1
+	resp, err := http.Get(env.Server.URL + "/projects/" + pid + "?version=" + vid1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), vid1) {
+		t.Error("should render version 1 iframe src")
+	}
+}
+
+func TestViewerProjectNotFound(t *testing.T) {
+	env := setup(t)
+	resp, err := http.Get(env.Server.URL + "/projects/nonexistent-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestViewerSinglePageNoTabs(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "<h1>only</h1>"})
+	res := uploadZip(t, env.Server.URL, "single-page", z)
+	pid := res["project_id"].(string)
+
+	resp, err := http.Get(env.Server.URL + "/projects/" + pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if strings.Contains(string(b), "page-tabs") {
+		t.Error("should not show page tabs for single-page project")
+	}
+}
+
+func TestViewerIframeServesDesign(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "<h1>iframe-test</h1>"})
+	res := uploadZip(t, env.Server.URL, "iframe-proj", z)
+	vid := res["version_id"].(string)
+
+	// Verify the iframe src URL actually serves the design
+	resp, err := http.Get(env.Server.URL + "/designs/" + vid + "/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), "iframe-test") {
+		t.Error("design file not served correctly")
+	}
+}
+
+// --- Phase 5: Annotations ---
+
+func TestCreateCommentAndGetComments(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "<h1>hi</h1>"})
+	res := uploadZip(t, env.Server.URL, "ann-proj", z)
+	vid := res["version_id"].(string)
+
+	// Create a comment
+	body := `{"page":"index.html","x_percent":25.5,"y_percent":50.0,"author_name":"Alice","author_email":"alice@test.com","body":"needs padding"}`
+	resp, err := http.Post(env.Server.URL+"/api/versions/"+vid+"/comments", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 201 {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 201, got %d: %s", resp.StatusCode, b)
+	}
+	var created map[string]any
+	json.NewDecoder(resp.Body).Decode(&created)
+	if created["body"] != "needs padding" {
+		t.Errorf("body = %v, want 'needs padding'", created["body"])
+	}
+
+	// Get comments
+	resp2, err := http.Get(env.Server.URL + "/api/versions/" + vid + "/comments")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	var comments []map[string]any
+	json.NewDecoder(resp2.Body).Decode(&comments)
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	if comments[0]["page"] != "index.html" {
+		t.Errorf("page = %v, want index.html", comments[0]["page"])
+	}
+}
+
+func TestCreateReplyIntegration(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := uploadZip(t, env.Server.URL, "reply-proj", z)
+	vid := res["version_id"].(string)
+
+	// Create comment
+	body := `{"page":"index.html","x_percent":10,"y_percent":20,"author_name":"Alice","author_email":"a@t.com","body":"hello"}`
+	resp, _ := http.Post(env.Server.URL+"/api/versions/"+vid+"/comments", "application/json", strings.NewReader(body))
+	var created map[string]any
+	json.NewDecoder(resp.Body).Decode(&created)
+	resp.Body.Close()
+	cid := created["id"].(string)
+
+	// Create reply
+	replyBody := `{"author_name":"Bob","author_email":"b@t.com","body":"agreed"}`
+	resp2, err := http.Post(env.Server.URL+"/api/comments/"+cid+"/replies", "application/json", strings.NewReader(replyBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != 201 {
+		b, _ := io.ReadAll(resp2.Body)
+		t.Fatalf("expected 201, got %d: %s", resp2.StatusCode, b)
+	}
+
+	// Verify reply appears in GET comments
+	resp3, _ := http.Get(env.Server.URL + "/api/versions/" + vid + "/comments")
+	defer resp3.Body.Close()
+	var comments []map[string]any
+	json.NewDecoder(resp3.Body).Decode(&comments)
+	replies := comments[0]["replies"].([]any)
+	if len(replies) != 1 {
+		t.Fatalf("expected 1 reply, got %d", len(replies))
+	}
+	r := replies[0].(map[string]any)
+	if r["body"] != "agreed" {
+		t.Errorf("reply body = %v, want 'agreed'", r["body"])
+	}
+}
+
+func TestToggleResolveIntegration(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := uploadZip(t, env.Server.URL, "resolve-proj", z)
+	vid := res["version_id"].(string)
+
+	// Create comment
+	body := `{"page":"index.html","x_percent":10,"y_percent":20,"author_name":"Alice","author_email":"a@t.com","body":"fix this"}`
+	resp, _ := http.Post(env.Server.URL+"/api/versions/"+vid+"/comments", "application/json", strings.NewReader(body))
+	var created map[string]any
+	json.NewDecoder(resp.Body).Decode(&created)
+	resp.Body.Close()
+	cid := created["id"].(string)
+
+	// Toggle resolve
+	req, _ := http.NewRequest("PATCH", env.Server.URL+"/api/comments/"+cid+"/resolve", nil)
+	client := &http.Client{}
+	resp2, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp2.StatusCode)
+	}
+	var result map[string]any
+	json.NewDecoder(resp2.Body).Decode(&result)
+	if result["resolved"] != true {
+		t.Errorf("expected resolved=true, got %v", result["resolved"])
+	}
+
+	// Toggle back
+	req2, _ := http.NewRequest("PATCH", env.Server.URL+"/api/comments/"+cid+"/resolve", nil)
+	resp3, _ := client.Do(req2)
+	defer resp3.Body.Close()
+	var result2 map[string]any
+	json.NewDecoder(resp3.Body).Decode(&result2)
+	if result2["resolved"] != false {
+		t.Errorf("expected resolved=false, got %v", result2["resolved"])
+	}
+}
+
+func TestCommentCarryOverIntegration(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "x"})
+
+	// Upload v1
+	res1 := uploadZip(t, env.Server.URL, "carry-proj", z)
+	vid1 := res1["version_id"].(string)
+
+	// Create unresolved comment on v1
+	body := `{"page":"index.html","x_percent":10,"y_percent":20,"author_name":"Alice","author_email":"a@t.com","body":"unresolved"}`
+	resp, _ := http.Post(env.Server.URL+"/api/versions/"+vid1+"/comments", "application/json", strings.NewReader(body))
+	resp.Body.Close()
+
+	// Create and resolve another comment on v1
+	body2 := `{"page":"index.html","x_percent":30,"y_percent":40,"author_name":"Bob","author_email":"b@t.com","body":"resolved"}`
+	resp2, _ := http.Post(env.Server.URL+"/api/versions/"+vid1+"/comments", "application/json", strings.NewReader(body2))
+	var created map[string]any
+	json.NewDecoder(resp2.Body).Decode(&created)
+	resp2.Body.Close()
+	cid := created["id"].(string)
+	req, _ := http.NewRequest("PATCH", env.Server.URL+"/api/comments/"+cid+"/resolve", nil)
+	client := &http.Client{}
+	r, _ := client.Do(req)
+	r.Body.Close()
+
+	// Upload v2
+	res2 := uploadZip(t, env.Server.URL, "carry-proj", z)
+	vid2 := res2["version_id"].(string)
+
+	// GET comments for v2 — should have only the unresolved one
+	resp3, _ := http.Get(env.Server.URL + "/api/versions/" + vid2 + "/comments")
+	defer resp3.Body.Close()
+	var comments []map[string]any
+	json.NewDecoder(resp3.Body).Decode(&comments)
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 carried-over comment, got %d", len(comments))
+	}
+	if comments[0]["body"] != "unresolved" {
+		t.Errorf("expected unresolved comment, got %q", comments[0]["body"])
+	}
+}
+
+func TestViewerHasAnnotationElements(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := uploadZip(t, env.Server.URL, "ann-viewer", z)
+	pid := res["project_id"].(string)
+
+	resp, err := http.Get(env.Server.URL + "/projects/" + pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+
+	checks := []string{"pin-overlay", "comment-panel", "annotation-filter", "annotations.js", "data-version-id"}
+	for _, check := range checks {
+		if !strings.Contains(body, check) {
+			t.Errorf("viewer HTML missing %q", check)
+		}
 	}
 }

@@ -25,7 +25,7 @@ func main() {
 
 	store := storage.New(*uploads)
 
-	h := &api.Handler{DB: database, Storage: store}
+	h := &api.Handler{DB: database, Storage: store, TemplatesDir: "web/templates", StaticDir: "web/static"}
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 

@@ -1,0 +1,29 @@
+{{define "content"}}
+<div class="container">
+    <h1>Design Reviewer</h1>
+    {{if .Projects}}
+    <table>
+        <thead>
+            <tr>
+                <th>Project</th>
+                <th>Status</th>
+                <th>Versions</th>
+                <th>Last Updated</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Projects}}
+            <tr>
+                <td><a href="/projects/{{.ID}}">{{.Name}}</a></td>
+                <td><span class="badge badge-{{.Status}}">{{.StatusLabel}}</span></td>
+                <td>{{.VersionCount}}</td>
+                <td>{{.TimeAgo}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+    <p class="empty">No projects yet. Push a design to get started.</p>
+    {{end}}
+</div>
+{{end}}
