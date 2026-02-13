@@ -592,7 +592,10 @@ func TestCreateReplyIntegration(t *testing.T) {
 	}
 
 	// Verify reply appears in GET comments
-	resp3, _ := http.Get(env.Server.URL + "/api/versions/" + vid + "/comments")
+	resp3, err := http.Get(env.Server.URL + "/api/versions/" + vid + "/comments")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp3.Body.Close()
 	var comments []map[string]any
 	json.NewDecoder(resp3.Body).Decode(&comments)
@@ -639,7 +642,10 @@ func TestToggleResolveIntegration(t *testing.T) {
 
 	// Toggle back
 	req2, _ := http.NewRequest("PATCH", env.Server.URL+"/api/comments/"+cid+"/resolve", nil)
-	resp3, _ := client.Do(req2)
+	resp3, err := client.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp3.Body.Close()
 	var result2 map[string]any
 	json.NewDecoder(resp3.Body).Decode(&result2)
@@ -678,7 +684,10 @@ func TestCommentCarryOverIntegration(t *testing.T) {
 	vid2 := res2["version_id"].(string)
 
 	// GET comments for v2 — should have only the unresolved one
-	resp3, _ := http.Get(env.Server.URL + "/api/versions/" + vid2 + "/comments")
+	resp3, err := http.Get(env.Server.URL + "/api/versions/" + vid2 + "/comments")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp3.Body.Close()
 	var comments []map[string]any
 	json.NewDecoder(resp3.Body).Decode(&comments)
@@ -932,7 +941,10 @@ func TestUpdateStatusCycleAllStatuses(t *testing.T) {
 	}
 
 	// Verify final status via project list
-	resp, _ := http.Get(env.Server.URL + "/api/projects")
+	resp, err := http.Get(env.Server.URL + "/api/projects")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	var projects []map[string]any
 	json.NewDecoder(resp.Body).Decode(&projects)
@@ -993,7 +1005,10 @@ func TestStatusReflectedOnHomePage(t *testing.T) {
 	r.Body.Close()
 
 	// Check home page
-	resp, _ := http.Get(env.Server.URL + "/")
+	resp, err := http.Get(env.Server.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(b), "badge-approved") {
@@ -1014,7 +1029,10 @@ func TestStatusReflectedOnViewerPage(t *testing.T) {
 	r.Body.Close()
 
 	// Check viewer page
-	resp, _ := http.Get(env.Server.URL + "/projects/" + pid)
+	resp, err := http.Get(env.Server.URL + "/projects/" + pid)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
 	body := string(b)
@@ -1031,7 +1049,10 @@ func TestNewProjectStartsAsDraft(t *testing.T) {
 	z := makeZip(t, map[string]string{"index.html": "x"})
 	uploadZip(t, env.Server.URL, "draft-proj", z)
 
-	resp, _ := http.Get(env.Server.URL + "/api/projects")
+	resp, err := http.Get(env.Server.URL + "/api/projects")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	var projects []map[string]any
 	json.NewDecoder(resp.Body).Decode(&projects)
@@ -1369,9 +1390,12 @@ func TestViewerRequiresAuth(t *testing.T) {
 	// With auth — should work
 	req3, _ := http.NewRequest("GET", env.Server.URL+"/projects/"+pid, nil)
 	req3.AddCookie(&http.Cookie{Name: "session", Value: sessionVal})
-	resp3, _ := (&http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+	resp3, err := (&http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
 	}}).Do(req3)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp3.Body.Close()
 	if resp3.StatusCode != 200 {
 		t.Errorf("expected 200 with auth, got %d", resp3.StatusCode)
@@ -1436,7 +1460,10 @@ func TestCLIPushCreatesNewVersion(t *testing.T) {
 		req, _ := http.NewRequest("POST", env.Server.URL+"/api/upload", &body)
 		req.Header.Set("Content-Type", mw.FormDataContentType())
 		req.Header.Set("Authorization", "Bearer cli-tok")
-		resp, _ := http.DefaultClient.Do(req)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
 		defer resp.Body.Close()
 		var res map[string]any
 		json.NewDecoder(resp.Body).Decode(&res)
@@ -1806,7 +1833,10 @@ func TestUserScopedProjectListing(t *testing.T) {
 	// Alice should only see her own project
 	req, _ := http.NewRequest("GET", env.Server.URL+"/api/projects", nil)
 	req.AddCookie(&http.Cookie{Name: "session", Value: session})
-	resp, _ := (&http.Client{}).Do(req)
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	var projects []map[string]any
 	json.NewDecoder(resp.Body).Decode(&projects)
@@ -1910,7 +1940,10 @@ func TestSeedProjectVisibleToAll(t *testing.T) {
 
 	req, _ := http.NewRequest("GET", env.Server.URL+"/api/projects", nil)
 	req.AddCookie(&http.Cookie{Name: "session", Value: session})
-	resp, _ := (&http.Client{}).Do(req)
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	var projects []map[string]any
 	json.NewDecoder(resp.Body).Decode(&projects)

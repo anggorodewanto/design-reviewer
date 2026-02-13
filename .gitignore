@@ -3,3 +3,6 @@ coverage.out
 coverage_combined.out
 .env
 /server
+design-reviewer-server
+test-mockup/
+.kiro/
