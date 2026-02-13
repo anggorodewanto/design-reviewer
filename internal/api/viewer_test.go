@@ -169,3 +169,46 @@ func TestHandleViewerPageTabs(t *testing.T) {
 		t.Error("missing page tab entries")
 	}
 }
+
+// --- DB error path tests for viewer ---
+
+func TestHandleViewerGetProjectDBError(t *testing.T) {
+	h := mockHandler(t, func(m *mockDB) { m.getProjectErr = errDB })
+	req := httptest.NewRequest("GET", "/projects/some-id", nil)
+	req.SetPathValue("id", "some-id")
+	w := httptest.NewRecorder()
+	h.handleViewer(w, req)
+	if w.Code != 500 {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestHandleViewerGetVersionDBError(t *testing.T) {
+	h := setupTestHandler(t)
+	pid, _ := seedProject(t, h, map[string]string{"index.html": "x"})
+	m := &mockDB{DataStore: h.DB, getVersionErr: errDB}
+	h.DB = m
+
+	req := httptest.NewRequest("GET", "/projects/"+pid+"?version=bad", nil)
+	req.SetPathValue("id", pid)
+	w := httptest.NewRecorder()
+	h.handleViewer(w, req)
+	if w.Code != 500 {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestHandleViewerGetLatestVersionDBError(t *testing.T) {
+	h := setupTestHandler(t)
+	pid, _ := seedProject(t, h, map[string]string{"index.html": "x"})
+	m := &mockDB{DataStore: h.DB, getLatestVersionErr: errDB}
+	h.DB = m
+
+	req := httptest.NewRequest("GET", "/projects/"+pid, nil)
+	req.SetPathValue("id", pid)
+	w := httptest.NewRecorder()
+	h.handleViewer(w, req)
+	if w.Code != 500 {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}

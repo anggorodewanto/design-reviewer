@@ -483,6 +483,214 @@ func TestLoginCallbackMissingToken(t *testing.T) {
 	}
 }
 
+// --- Config edge case tests ---
+
+func TestConfigPathDefault(t *testing.T) {
+	old := ConfigPathOverride
+	ConfigPathOverride = ""
+	defer func() { ConfigPathOverride = old }()
+	p := configPath()
+	if p == "" {
+		t.Error("configPath should return non-empty default")
+	}
+	if !strings.Contains(p, ".design-reviewer.yaml") {
+		t.Errorf("configPath = %q, expected to contain .design-reviewer.yaml", p)
+	}
+}
+
+func TestSaveConfigWriteError(t *testing.T) {
+	ConfigPathOverride = "/nonexistent/dir/.design-reviewer.yaml"
+	defer func() { ConfigPathOverride = "" }()
+	err := SaveConfig(&Config{Token: "x"})
+	if err == nil {
+		t.Error("expected error writing to nonexistent dir")
+	}
+}
+
+func TestLoadConfigReadError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".design-reviewer.yaml")
+	os.MkdirAll(path, 0755) // create a directory where a file is expected
+	ConfigPathOverride = path
+	defer func() { ConfigPathOverride = "" }()
+	_, err := LoadConfig()
+	if err == nil {
+		t.Error("expected error reading directory as file")
+	}
+}
+
+func TestLogoutSaveError(t *testing.T) {
+	// First save a valid config, then make path unwritable
+	path := setTestConfig(t)
+	SaveConfig(&Config{Server: "http://x.com", Token: "tok"})
+	dir := filepath.Dir(path)
+	os.Chmod(dir, 0444)
+	t.Cleanup(func() { os.Chmod(dir, 0755) })
+	err := Logout()
+	if err == nil {
+		t.Error("expected error from Logout when config is unwritable")
+	}
+}
+
+// --- Push edge case tests ---
+
+func TestPushDirIsFile(t *testing.T) {
+	setTestConfig(t)
+	SaveConfig(&Config{Token: "tok", Server: "http://localhost"})
+	f := filepath.Join(t.TempDir(), "file.txt")
+	os.WriteFile(f, []byte("x"), 0644)
+	err := Push(f, "test", "")
+	if err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("expected 'does not exist' error for file, got: %v", err)
+	}
+}
+
+func TestPushServerBadJSON(t *testing.T) {
+	setTestConfig(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(400)
+		fmt.Fprint(w, "not json")
+	}))
+	defer srv.Close()
+	SaveConfig(&Config{Token: "tok", Server: srv.URL})
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("ok"), 0644)
+	err := Push(dir, "test", "")
+	if err == nil {
+		t.Error("expected error for bad server response")
+	}
+}
+
+func TestPushServerJSONError(t *testing.T) {
+	setTestConfig(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(400)
+		json.NewEncoder(w).Encode(map[string]string{"error": "bad upload"})
+	}))
+	defer srv.Close()
+	SaveConfig(&Config{Token: "tok", Server: srv.URL})
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("ok"), 0644)
+	err := Push(dir, "test", "")
+	if err == nil || !strings.Contains(err.Error(), "bad upload") {
+		t.Errorf("expected 'bad upload' error, got: %v", err)
+	}
+}
+
+func TestPushLoadConfigError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".design-reviewer.yaml")
+	os.MkdirAll(path, 0755) // directory instead of file
+	ConfigPathOverride = path
+	defer func() { ConfigPathOverride = "" }()
+	err := Push(t.TempDir(), "test", "")
+	if err == nil {
+		t.Error("expected error from LoadConfig")
+	}
+}
+
+func TestLogoutLoadConfigError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".design-reviewer.yaml")
+	os.MkdirAll(path, 0755)
+	ConfigPathOverride = path
+	defer func() { ConfigPathOverride = "" }()
+	err := Logout()
+	if err == nil {
+		t.Error("expected error from LoadConfig in Logout")
+	}
+}
+
+func TestZipDirectoryUnreadableFile(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "secret.html")
+	os.WriteFile(f, []byte("x"), 0644)
+	os.Chmod(f, 0000)
+	t.Cleanup(func() { os.Chmod(f, 0644) })
+	_, err := ZipDirectory(dir)
+	if err == nil {
+		t.Error("expected error for unreadable file")
+	}
+}
+
+// --- Init Tests ---
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	fn()
+	w.Close()
+	os.Stdout = old
+	out, _ := io.ReadAll(r)
+	return string(out)
+}
+
+func TestInitCreatesFile(t *testing.T) {
+	dir := t.TempDir()
+	out := captureStdout(t, func() {
+		if err := Init(dir); err != nil {
+			t.Fatal(err)
+		}
+	})
+	data, err := os.ReadFile(filepath.Join(dir, "DESIGN_GUIDELINES.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != designGuidelinesContent {
+		t.Error("file content does not match template")
+	}
+	if !strings.Contains(out, "Created DESIGN_GUIDELINES.md") {
+		t.Errorf("unexpected output: %q", out)
+	}
+}
+
+func TestInitSkipsExisting(t *testing.T) {
+	dir := t.TempDir()
+	existing := "original content"
+	os.WriteFile(filepath.Join(dir, "DESIGN_GUIDELINES.md"), []byte(existing), 0644)
+
+	out := captureStdout(t, func() {
+		if err := Init(dir); err != nil {
+			t.Fatal(err)
+		}
+	})
+	data, _ := os.ReadFile(filepath.Join(dir, "DESIGN_GUIDELINES.md"))
+	if string(data) != existing {
+		t.Error("file was overwritten")
+	}
+	if !strings.Contains(out, "already exists, skipping") {
+		t.Errorf("unexpected output: %q", out)
+	}
+}
+
+func TestInitNonexistentDir(t *testing.T) {
+	err := Init("/nonexistent/path/that/does/not/exist")
+	if err == nil {
+		t.Error("expected error for nonexistent directory")
+	}
+}
+
+func TestInitContentHasRequiredSections(t *testing.T) {
+	required := []string{
+		"No JavaScript",
+		"Self-Contained",
+		"No External Resources",
+		"File Structure",
+		"1440px",
+		"CSS Features That Work",
+		"What Won't Work",
+		"Tips for Best Results",
+		"sandbox=\"allow-same-origin\"",
+	}
+	for _, s := range required {
+		if !strings.Contains(designGuidelinesContent, s) {
+			t.Errorf("template missing required section: %q", s)
+		}
+	}
+}
+
 // --- Helpers ---
 
 func readZip(t *testing.T, buf *bytes.Buffer) map[string]string {

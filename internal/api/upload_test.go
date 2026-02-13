@@ -241,3 +241,53 @@ func TestRegisterRoutes(t *testing.T) {
 		}
 	}
 }
+
+// --- DB error path tests for upload ---
+
+func TestHandleUploadCreateProjectDBError(t *testing.T) {
+	h := mockHandler(t, func(m *mockDB) { m.createProjectErr = errDB })
+	var zipBuf bytes.Buffer
+	zw := zip.NewWriter(&zipBuf)
+	f, _ := zw.Create("index.html")
+	f.Write([]byte("x"))
+	zw.Close()
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	mw.WriteField("name", "new-proj")
+	fw, _ := mw.CreateFormFile("file", "upload.zip")
+	fw.Write(zipBuf.Bytes())
+	mw.Close()
+
+	req := httptest.NewRequest("POST", "/api/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	h.handleUpload(w, req)
+	if w.Code != 500 {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestHandleUploadCreateVersionDBError(t *testing.T) {
+	h := mockHandler(t, func(m *mockDB) { m.createVersionErr = errDB })
+	var zipBuf bytes.Buffer
+	zw := zip.NewWriter(&zipBuf)
+	f, _ := zw.Create("index.html")
+	f.Write([]byte("x"))
+	zw.Close()
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	mw.WriteField("name", "ver-err-proj")
+	fw, _ := mw.CreateFormFile("file", "upload.zip")
+	fw.Write(zipBuf.Bytes())
+	mw.Close()
+
+	req := httptest.NewRequest("POST", "/api/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	h.handleUpload(w, req)
+	if w.Code != 500 {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}

@@ -484,3 +484,172 @@ func TestCreateTokenDuplicate(t *testing.T) {
 		t.Error("expected error for duplicate token")
 	}
 }
+
+// --- Closed DB error tests ---
+
+func closedDB(t *testing.T) *DB {
+	t.Helper()
+	d := newTestDB(t)
+	d.Close()
+	return d
+}
+
+func TestNewInvalidPath(t *testing.T) {
+	_, err := New("/nonexistent/dir/test.db")
+	if err == nil {
+		t.Error("expected error for invalid path")
+	}
+}
+
+func TestCreateProjectClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.CreateProject("x")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestGetProjectClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.GetProject("x")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestGetProjectByNameClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.GetProjectByName("x")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestListProjectsClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.ListProjects()
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestListProjectsWithVersionCountClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.ListProjectsWithVersionCount()
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestUpdateProjectStatusClosedDB(t *testing.T) {
+	d := closedDB(t)
+	err := d.UpdateProjectStatus("x", "draft")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestCreateVersionClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.CreateVersion("x", "/path")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestGetVersionClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.GetVersion("x")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestGetLatestVersionClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.GetLatestVersion("x")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestListVersionsClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.ListVersions("x")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestCreateCommentClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.CreateComment("v", "p", 0, 0, "n", "e", "b")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestGetCommentsForVersionClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.GetCommentsForVersion("x")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestGetUnresolvedCommentsUpToClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.GetUnresolvedCommentsUpTo("x")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestToggleResolveClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.ToggleResolve("x")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestCreateReplyClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.CreateReply("c", "n", "e", "b")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestGetRepliesClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.GetReplies("x")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestCreateTokenClosedDB(t *testing.T) {
+	d := closedDB(t)
+	err := d.CreateToken("t", "n", "e")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestGetUserByTokenClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, _, err := d.GetUserByToken("t")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestCreateProjectDuplicateName(t *testing.T) {
+	d := newTestDB(t)
+	d.CreateProject("dup")
+	_, err := d.CreateProject("dup")
+	if err == nil {
+		t.Error("expected error for duplicate name")
+	}
+}

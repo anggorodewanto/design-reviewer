@@ -238,3 +238,36 @@ func TestHandleUpdateStatusBadJSON(t *testing.T) {
 		t.Errorf("expected 400, got %d", w.Code)
 	}
 }
+
+// --- DB error path tests ---
+
+func TestHandleListProjectsDBError(t *testing.T) {
+	h := mockHandler(t, func(m *mockDB) { m.listProjectsWithVCErr = errDB })
+	req := httptest.NewRequest("GET", "/api/projects", nil)
+	w := httptest.NewRecorder()
+	h.handleListProjects(w, req)
+	if w.Code != 500 {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestHandleHomeDBError(t *testing.T) {
+	h := mockHandler(t, func(m *mockDB) { m.listProjectsWithVCErr = errDB })
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	h.handleHome(w, req)
+	if w.Code != 500 {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestHandleUpdateStatusDBError(t *testing.T) {
+	h := mockHandler(t, func(m *mockDB) { m.updateProjectStatusErr = errDB })
+	req := httptest.NewRequest("PATCH", "/api/projects/x/status", strings.NewReader(`{"status":"draft"}`))
+	req.SetPathValue("id", "x")
+	w := httptest.NewRecorder()
+	h.handleUpdateStatus(w, req)
+	if w.Code != 500 {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}

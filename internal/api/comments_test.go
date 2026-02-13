@@ -14,14 +14,23 @@ import (
 // mockDB embeds a real DataStore and allows overriding specific methods to inject errors.
 type mockDB struct {
 	DataStore
-	getUnresolvedErr    error
-	getCommentsErr      error
-	getRepliesErr       error
-	createCommentErr    error
-	createReplyErr      error
-	toggleResolveErr    error
-	toggleResolveResult bool
-	listVersionsErr     error
+	getUnresolvedErr           error
+	getCommentsErr             error
+	getRepliesErr              error
+	createCommentErr           error
+	createReplyErr             error
+	toggleResolveErr           error
+	toggleResolveResult        bool
+	listVersionsErr            error
+	listProjectsWithVCErr      error
+	updateProjectStatusErr     error
+	getProjectByNameErr        error
+	createProjectErr           error
+	createVersionErr           error
+	getProjectErr              error
+	getVersionErr              error
+	getLatestVersionErr        error
+	createTokenErr             error
 }
 
 func (m *mockDB) GetUnresolvedCommentsUpTo(versionID string) ([]db.Comment, error) {
@@ -71,6 +80,69 @@ func (m *mockDB) ListVersions(projectID string) ([]db.Version, error) {
 		return nil, m.listVersionsErr
 	}
 	return m.DataStore.ListVersions(projectID)
+}
+
+func (m *mockDB) ListProjectsWithVersionCount() ([]db.ProjectWithVersionCount, error) {
+	if m.listProjectsWithVCErr != nil {
+		return nil, m.listProjectsWithVCErr
+	}
+	return m.DataStore.ListProjectsWithVersionCount()
+}
+
+func (m *mockDB) UpdateProjectStatus(id, status string) error {
+	if m.updateProjectStatusErr != nil {
+		return m.updateProjectStatusErr
+	}
+	return m.DataStore.UpdateProjectStatus(id, status)
+}
+
+func (m *mockDB) GetProjectByName(name string) (*db.Project, error) {
+	if m.getProjectByNameErr != nil {
+		return nil, m.getProjectByNameErr
+	}
+	return m.DataStore.GetProjectByName(name)
+}
+
+func (m *mockDB) CreateProject(name string) (*db.Project, error) {
+	if m.createProjectErr != nil {
+		return nil, m.createProjectErr
+	}
+	return m.DataStore.CreateProject(name)
+}
+
+func (m *mockDB) CreateVersion(projectID, storagePath string) (*db.Version, error) {
+	if m.createVersionErr != nil {
+		return nil, m.createVersionErr
+	}
+	return m.DataStore.CreateVersion(projectID, storagePath)
+}
+
+func (m *mockDB) GetProject(id string) (*db.Project, error) {
+	if m.getProjectErr != nil {
+		return nil, m.getProjectErr
+	}
+	return m.DataStore.GetProject(id)
+}
+
+func (m *mockDB) GetVersion(id string) (*db.Version, error) {
+	if m.getVersionErr != nil {
+		return nil, m.getVersionErr
+	}
+	return m.DataStore.GetVersion(id)
+}
+
+func (m *mockDB) GetLatestVersion(projectID string) (*db.Version, error) {
+	if m.getLatestVersionErr != nil {
+		return nil, m.getLatestVersionErr
+	}
+	return m.DataStore.GetLatestVersion(projectID)
+}
+
+func (m *mockDB) CreateToken(token, userName, userEmail string) error {
+	if m.createTokenErr != nil {
+		return m.createTokenErr
+	}
+	return m.DataStore.CreateToken(token, userName, userEmail)
 }
 
 var errDB = errors.New("db failure")

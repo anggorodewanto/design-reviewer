@@ -523,3 +523,111 @@ func TestCreateReplyUsesAuthContext(t *testing.T) {
 		t.Errorf("author_name = %q, want ReplyUser", result.AuthorName)
 	}
 }
+
+// --- Additional error path tests ---
+
+func TestHandleLoginPageTemplateMissing(t *testing.T) {
+	h := setupAuthHandler(t)
+	h.TemplatesDir = "/nonexistent"
+	req := httptest.NewRequest("GET", "/login", nil)
+	w := httptest.NewRecorder()
+	h.handleLoginPage(w, req)
+	if w.Code != 500 {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestHandleGoogleCallbackCLIFlowCreateTokenError(t *testing.T) {
+	h := setupAuthHandler(t)
+	m := &mockDB{DataStore: h.DB, createTokenErr: errDB}
+	h.DB = m
+	state := "randomstate:9876"
+
+	req := httptest.NewRequest("GET", "/auth/google/callback?code=authcode&state="+state, nil)
+	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: state})
+	w := httptest.NewRecorder()
+	h.handleGoogleCallback(w, req)
+	if w.Code != 500 {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestHandleTokenExchangeCreateTokenError(t *testing.T) {
+	h := setupAuthHandler(t)
+	m := &mockDB{DataStore: h.DB, createTokenErr: errDB}
+	h.DB = m
+
+	req := httptest.NewRequest("POST", "/api/auth/token", strings.NewReader(`{"code":"code"}`))
+	w := httptest.NewRecorder()
+	h.handleTokenExchange(w, req)
+	if w.Code != 500 {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestRegisterRoutesWithAuth(t *testing.T) {
+	h := setupAuthHandler(t)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/"},
+		{"GET", "/login"},
+		{"GET", "/auth/google/login"},
+		{"GET", "/auth/google/callback"},
+		{"GET", "/auth/google/cli-login"},
+		{"POST", "/api/auth/token"},
+		{"GET", "/auth/logout"},
+		{"GET", "/api/projects"},
+		{"POST", "/api/upload"},
+		{"GET", "/projects/test-id"},
+	}
+	for _, r := range routes {
+		req := httptest.NewRequest(r.method, r.path, nil)
+		_, pattern := mux.Handler(req)
+		if pattern == "" {
+			t.Errorf("no route matched %s %s", r.method, r.path)
+		}
+	}
+}
+
+func TestWebMiddlewareEmptyCookieValue(t *testing.T) {
+	h := setupAuthHandler(t)
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	})
+	handler := h.webMiddleware(inner)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: ""})
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", w.Code)
+	}
+}
+
+func TestAPIMiddlewareInvalidBearerThenValidSession(t *testing.T) {
+	h := setupAuthHandler(t)
+	var gotName string
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotName, _ = auth.GetUserFromContext(r.Context())
+		w.WriteHeader(200)
+	})
+	handler := h.apiMiddleware(inner)
+
+	req := httptest.NewRequest("GET", "/api/projects", nil)
+	req.Header.Set("Authorization", "Bearer invalid-token")
+	req.AddCookie(testSessionCookie(t, h.Auth.SessionSecret, "Fallback", "fb@t.com"))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if gotName != "Fallback" {
+		t.Errorf("expected Fallback, got %q", gotName)
+	}
+}

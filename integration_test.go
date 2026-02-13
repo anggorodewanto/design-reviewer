@@ -15,6 +15,7 @@ import (
 
 	"github.com/ab/design-reviewer/internal/api"
 	authpkg "github.com/ab/design-reviewer/internal/auth"
+	"github.com/ab/design-reviewer/internal/cli"
 	"github.com/ab/design-reviewer/internal/db"
 	"github.com/ab/design-reviewer/internal/storage"
 	"golang.org/x/oauth2"
@@ -1648,5 +1649,77 @@ func TestDeployScriptIsExecutable(t *testing.T) {
 	}
 	if info.Mode()&0111 == 0 {
 		t.Error("scripts/deploy.sh is not executable")
+	}
+}
+
+// --- Phase 11: Design Prompt Template (init command) ---
+
+func TestInitCreatesDesignGuidelines(t *testing.T) {
+	dir := t.TempDir()
+	if err := cli.Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "DESIGN_GUIDELINES.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	// Verify all key rendering constraints from the spec are present
+	required := []string{
+		"No JavaScript",
+		"sandbox=\"allow-same-origin\"",
+		"Self-Contained",
+		"No External Resources",
+		"File Structure",
+		"1440px",
+		"CSS Features That Work",
+		"What Won't Work",
+		"Tips for Best Results",
+	}
+	for _, s := range required {
+		if !strings.Contains(content, s) {
+			t.Errorf("DESIGN_GUIDELINES.md missing required content: %q", s)
+		}
+	}
+}
+
+func TestInitIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	cli.Init(dir)
+	original, _ := os.ReadFile(filepath.Join(dir, "DESIGN_GUIDELINES.md"))
+
+	// Write custom content to simulate user edits
+	custom := []byte("custom content")
+	os.WriteFile(filepath.Join(dir, "DESIGN_GUIDELINES.md"), custom, 0644)
+
+	// Init again should skip and not overwrite
+	cli.Init(dir)
+	after, _ := os.ReadFile(filepath.Join(dir, "DESIGN_GUIDELINES.md"))
+	if !bytes.Equal(after, custom) {
+		t.Errorf("init overwrote existing file: got %q, want %q", string(after), string(original))
+	}
+}
+
+func TestInitDoesNotAffectOtherFiles(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<h1>hi</h1>"), 0644)
+	os.WriteFile(filepath.Join(dir, "style.css"), []byte("body{}"), 0644)
+
+	if err := cli.Init(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	// Existing files should be untouched
+	html, _ := os.ReadFile(filepath.Join(dir, "index.html"))
+	if string(html) != "<h1>hi</h1>" {
+		t.Error("index.html was modified")
+	}
+	css, _ := os.ReadFile(filepath.Join(dir, "style.css"))
+	if string(css) != "body{}" {
+		t.Error("style.css was modified")
+	}
+	// DESIGN_GUIDELINES.md should exist
+	if _, err := os.Stat(filepath.Join(dir, "DESIGN_GUIDELINES.md")); err != nil {
+		t.Error("DESIGN_GUIDELINES.md not created")
 	}
 }

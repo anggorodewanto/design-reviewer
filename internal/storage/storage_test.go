@@ -110,3 +110,71 @@ func TestGetFilePath(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func TestSaveUploadWithSubdirectories(t *testing.T) {
+	s := New(filepath.Join(t.TempDir(), "uploads"))
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	// Add a directory entry
+	w.Create("images/")
+	f, _ := w.Create("index.html")
+	f.Write([]byte("<h1>hi</h1>"))
+	f2, _ := w.Create("images/logo.png")
+	f2.Write([]byte("png-data"))
+	w.Close()
+
+	if err := s.SaveUpload("v1", &buf); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(s.GetFilePath("v1", "images/logo.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "png-data" {
+		t.Errorf("content = %q", data)
+	}
+}
+
+func TestSaveUploadPathTraversalSkipped(t *testing.T) {
+	s := New(filepath.Join(t.TempDir(), "uploads"))
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	f, _ := w.Create("index.html")
+	f.Write([]byte("ok"))
+	// Add a path traversal entry
+	f2, _ := w.Create("../../../etc/passwd")
+	f2.Write([]byte("evil"))
+	w.Close()
+
+	if err := s.SaveUpload("v1", &buf); err != nil {
+		t.Fatal(err)
+	}
+	// The traversal file should not exist outside the version dir
+	if _, err := os.Stat(s.GetFilePath("v1", "../../../etc/passwd")); err == nil {
+		t.Error("path traversal file should not be created")
+	}
+}
+
+func TestSaveUploadReadOnlyDir(t *testing.T) {
+	tmp := t.TempDir()
+	roDir := filepath.Join(tmp, "readonly")
+	os.MkdirAll(roDir, 0755)
+	s := New(filepath.Join(roDir, "uploads"))
+	// Make parent read-only after creating uploads dir
+	os.Chmod(roDir, 0444)
+	t.Cleanup(func() { os.Chmod(roDir, 0755) })
+
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	err := s.SaveUpload("v1", z)
+	if err == nil {
+		t.Error("expected error writing to read-only directory")
+	}
+}
+
+func TestSaveUploadHTMLCaseInsensitive(t *testing.T) {
+	s := New(filepath.Join(t.TempDir(), "uploads"))
+	z := makeZip(t, map[string]string{"PAGE.HTML": "<h1>hi</h1>"})
+	if err := s.SaveUpload("v1", z); err != nil {
+		t.Fatal(err)
+	}
+}

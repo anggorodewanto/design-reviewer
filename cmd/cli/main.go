@@ -41,6 +41,15 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+	case "init":
+		dir := "."
+		if len(os.Args) > 2 {
+			dir = os.Args[2]
+		}
+		if err := cli.Init(dir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", os.Args[1])
 		usage()
@@ -54,5 +63,6 @@ func usage() {
 Commands:
   login   [--server URL]                          Log in via Google OAuth
   logout                                          Remove stored token
-  push    <directory> [--name <name>] [--server URL]  Upload a design project`)
+  push    <directory> [--name <name>] [--server URL]  Upload a design project
+  init    [directory]                                 Generate DESIGN_GUIDELINES.md`)
 }
