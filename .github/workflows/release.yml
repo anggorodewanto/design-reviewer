@@ -10,17 +10,6 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-          - goos: darwin
-            goarch: amd64
-          - goos: darwin
-            goarch: arm64
-          - goos: windows
-            goarch: amd64
     steps:
       - uses: actions/checkout@v4
 
@@ -28,15 +17,12 @@ jobs:
         with:
           go-version: "1.22"
 
-      - name: Build
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
+      - name: Build all platforms
         run: |
-          ext=""
-          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
-          go build -o design-reviewer-${GOOS}-${GOARCH}${ext} ./cmd/cli
+          for pair in linux/amd64 darwin/amd64 darwin/arm64 windows/amd64; do
+            GOOS=${pair%/*} GOARCH=${pair#*/} CGO_ENABLED=0 \
+              go build -o "design-reviewer-${pair%/*}-${pair#*/}$([ ${pair%/*} = windows ] && echo .exe)" ./cmd/cli
+          done
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
