@@ -52,9 +52,8 @@ func Login(serverURL string) error {
 	}()
 
 	url := fmt.Sprintf("%s/auth/google/cli-login?port=9876", serverURL)
-	if err := openBrowser(url); err != nil {
-		fmt.Printf("Open this URL in your browser:\n%s\n", url)
-	}
+	fmt.Printf("Open this URL in your browser:\n%s\n", url)
+	openBrowser(url)
 
 	select {
 	case token := <-tokenCh:
