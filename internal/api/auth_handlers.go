@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -93,7 +94,7 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "failed to create token", http.StatusInternalServerError)
 			return
 		}
-		redirectURL := fmt.Sprintf("http://localhost:%s/callback?token=%s", port, apiToken)
+		redirectURL := fmt.Sprintf("http://localhost:%s/callback?token=%s&name=%s", port, apiToken, url.QueryEscape(name))
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
 	}

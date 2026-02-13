@@ -1376,3 +1376,225 @@ func TestViewerRequiresAuth(t *testing.T) {
 		t.Errorf("expected 200 with auth, got %d", resp3.StatusCode)
 	}
 }
+
+// --- Phase 9: CLI Tool ---
+
+func TestCLIPushWithBearerToken(t *testing.T) {
+	env, _ := setupWithAuth(t)
+
+	// Create an API token
+	env.DB.CreateToken("cli-token-123", "CLI User", "cli@test.com")
+
+	z := makeZip(t, map[string]string{"index.html": "<h1>CLI Push</h1>"})
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	mw.WriteField("name", "cli-project")
+	fw, _ := mw.CreateFormFile("file", "upload.zip")
+	fw.Write(z)
+	mw.Close()
+
+	req, _ := http.NewRequest("POST", env.Server.URL+"/api/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer cli-token-123")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, b)
+	}
+
+	var result map[string]any
+	json.NewDecoder(resp.Body).Decode(&result)
+
+	if result["project_id"] == nil {
+		t.Error("missing project_id")
+	}
+	if result["version_num"] != float64(1) {
+		t.Errorf("version_num = %v, want 1", result["version_num"])
+	}
+}
+
+func TestCLIPushCreatesNewVersion(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	env.DB.CreateToken("cli-tok", "U", "u@t.com")
+
+	z := makeZip(t, map[string]string{"index.html": "v1"})
+
+	upload := func() map[string]any {
+		var body bytes.Buffer
+		mw := multipart.NewWriter(&body)
+		mw.WriteField("name", "versioned-proj")
+		fw, _ := mw.CreateFormFile("file", "upload.zip")
+		fw.Write(z)
+		mw.Close()
+		req, _ := http.NewRequest("POST", env.Server.URL+"/api/upload", &body)
+		req.Header.Set("Content-Type", mw.FormDataContentType())
+		req.Header.Set("Authorization", "Bearer cli-tok")
+		resp, _ := http.DefaultClient.Do(req)
+		defer resp.Body.Close()
+		var res map[string]any
+		json.NewDecoder(resp.Body).Decode(&res)
+		return res
+	}
+
+	r1 := upload()
+	r2 := upload()
+
+	if r1["project_id"] != r2["project_id"] {
+		t.Error("same name should reuse project")
+	}
+	if r2["version_num"] != float64(2) {
+		t.Errorf("second upload version_num = %v, want 2", r2["version_num"])
+	}
+}
+
+func TestCLIPushWithoutAuthReturns401(t *testing.T) {
+	env, _ := setupWithAuth(t)
+
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	mw.WriteField("name", "no-auth")
+	fw, _ := mw.CreateFormFile("file", "upload.zip")
+	fw.Write(z)
+	mw.Close()
+
+	resp, err := http.Post(env.Server.URL+"/api/upload", mw.FormDataContentType(), &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestCLILoginFlowRedirectsToOAuth(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	resp, err := client.Get(env.Server.URL + "/auth/google/cli-login?port=9876")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("expected 302, got %d", resp.StatusCode)
+	}
+
+	loc := resp.Header.Get("Location")
+	if !strings.Contains(loc, "accounts.google.com") {
+		t.Errorf("expected Google OAuth redirect, got %s", loc)
+	}
+	if !strings.Contains(loc, "9876") {
+		t.Errorf("expected port in state, got %s", loc)
+	}
+}
+
+func TestCLILoginFlowMissingPort(t *testing.T) {
+	env, _ := setupWithAuth(t)
+
+	resp, err := http.Get(env.Server.URL + "/auth/google/cli-login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestCLIOAuthCallbackRedirectsToCLI(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	// First, initiate CLI login to get the state cookie
+	resp1, _ := client.Get(env.Server.URL + "/auth/google/cli-login?port=9876")
+	resp1.Body.Close()
+
+	// Extract state cookie and state from redirect URL
+	var stateCookie *http.Cookie
+	for _, c := range resp1.Cookies() {
+		if c.Name == "oauth_state" {
+			stateCookie = c
+		}
+	}
+	if stateCookie == nil {
+		t.Fatal("no oauth_state cookie")
+	}
+
+	// Simulate Google callback with the state
+	callbackURL := env.Server.URL + "/auth/google/callback?state=" + stateCookie.Value + "&code=test-code"
+	req, _ := http.NewRequest("GET", callbackURL, nil)
+	req.AddCookie(stateCookie)
+	resp2, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusFound {
+		t.Fatalf("expected 302, got %d", resp2.StatusCode)
+	}
+
+	loc := resp2.Header.Get("Location")
+	if !strings.Contains(loc, "localhost:9876/callback") {
+		t.Errorf("expected redirect to CLI localhost, got %s", loc)
+	}
+	if !strings.Contains(loc, "token=") {
+		t.Errorf("expected token in redirect, got %s", loc)
+	}
+	if !strings.Contains(loc, "name=") {
+		t.Errorf("expected name in redirect, got %s", loc)
+	}
+}
+
+func TestCLIUploadedDesignServesInViewer(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	env.DB.CreateToken("cli-tok", "U", "u@t.com")
+
+	z := makeZip(t, map[string]string{
+		"index.html": "<h1>Design from CLI</h1>",
+		"style.css":  "body { color: red; }",
+	})
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	mw.WriteField("name", "cli-design")
+	fw, _ := mw.CreateFormFile("file", "upload.zip")
+	fw.Write(z)
+	mw.Close()
+
+	req, _ := http.NewRequest("POST", env.Server.URL+"/api/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer cli-tok")
+	resp, _ := http.DefaultClient.Do(req)
+	var result map[string]any
+	json.NewDecoder(resp.Body).Decode(&result)
+	resp.Body.Close()
+
+	vid := result["version_id"].(string)
+
+	// Verify the uploaded design files are served
+	resp2, err := http.Get(env.Server.URL + "/designs/" + vid + "/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	b, _ := io.ReadAll(resp2.Body)
+	if !strings.Contains(string(b), "Design from CLI") {
+		t.Errorf("expected design content, got %s", b)
+	}
+}

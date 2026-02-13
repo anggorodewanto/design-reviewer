@@ -1,0 +1,510 @@
+package cli
+
+import (
+	"archive/zip"
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// --- Config Tests ---
+
+func setTestConfig(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), ".design-reviewer.yaml")
+	ConfigPathOverride = path
+	t.Cleanup(func() { ConfigPathOverride = "" })
+	return path
+}
+
+func TestLoadConfigFileNotExist(t *testing.T) {
+	setTestConfig(t)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server != "" || cfg.Token != "" {
+		t.Errorf("expected empty config, got %+v", cfg)
+	}
+}
+
+func TestSaveAndLoadConfig(t *testing.T) {
+	setTestConfig(t)
+	cfg := &Config{Server: "http://example.com", Token: "abc123"}
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Server != cfg.Server || loaded.Token != cfg.Token {
+		t.Errorf("got %+v, want %+v", loaded, cfg)
+	}
+}
+
+func TestSaveConfigFilePermissions(t *testing.T) {
+	path := setTestConfig(t)
+	SaveConfig(&Config{Token: "secret"})
+	info, _ := os.Stat(path)
+	if info.Mode().Perm() != 0600 {
+		t.Errorf("permissions = %o, want 0600", info.Mode().Perm())
+	}
+}
+
+func TestLoadConfigInvalidYAML(t *testing.T) {
+	path := setTestConfig(t)
+	os.WriteFile(path, []byte(":::invalid"), 0600)
+	_, err := LoadConfig()
+	if err == nil {
+		t.Error("expected error for invalid YAML")
+	}
+}
+
+func TestSaveConfigOverwrites(t *testing.T) {
+	setTestConfig(t)
+	SaveConfig(&Config{Server: "http://old.com", Token: "old"})
+	SaveConfig(&Config{Server: "http://new.com", Token: "new"})
+	cfg, _ := LoadConfig()
+	if cfg.Server != "http://new.com" || cfg.Token != "new" {
+		t.Errorf("got %+v", cfg)
+	}
+}
+
+// --- ZipDirectory Tests ---
+
+func TestZipDirectoryBasic(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<h1>hi</h1>"), 0644)
+	os.WriteFile(filepath.Join(dir, "style.css"), []byte("body{}"), 0644)
+
+	buf, err := ZipDirectory(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	files := readZip(t, buf)
+	if files["index.html"] != "<h1>hi</h1>" {
+		t.Errorf("index.html = %q", files["index.html"])
+	}
+	if files["style.css"] != "body{}" {
+		t.Errorf("style.css = %q", files["style.css"])
+	}
+}
+
+func TestZipDirectorySkipsHiddenFiles(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("ok"), 0644)
+	os.WriteFile(filepath.Join(dir, ".hidden"), []byte("secret"), 0644)
+
+	buf, err := ZipDirectory(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	files := readZip(t, buf)
+	if _, ok := files[".hidden"]; ok {
+		t.Error("hidden file should be skipped")
+	}
+	if _, ok := files["index.html"]; !ok {
+		t.Error("index.html should be included")
+	}
+}
+
+func TestZipDirectorySkipsHiddenDirs(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("ok"), 0644)
+	hiddenDir := filepath.Join(dir, ".git")
+	os.MkdirAll(hiddenDir, 0755)
+	os.WriteFile(filepath.Join(hiddenDir, "config"), []byte("git"), 0644)
+
+	buf, err := ZipDirectory(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	files := readZip(t, buf)
+	for name := range files {
+		if strings.HasPrefix(name, ".git") {
+			t.Errorf("hidden dir file included: %s", name)
+		}
+	}
+}
+
+func TestZipDirectoryPreservesSubdirs(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "images"), 0755)
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("ok"), 0644)
+	os.WriteFile(filepath.Join(dir, "images", "logo.png"), []byte("png"), 0644)
+
+	buf, err := ZipDirectory(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	files := readZip(t, buf)
+	if files["images/logo.png"] != "png" {
+		t.Errorf("expected images/logo.png in zip, got files: %v", keys(files))
+	}
+}
+
+func TestZipDirectoryNonexistent(t *testing.T) {
+	_, err := ZipDirectory("/nonexistent/path")
+	if err == nil {
+		t.Error("expected error for nonexistent directory")
+	}
+}
+
+// --- Push Tests ---
+
+func TestPushNotLoggedIn(t *testing.T) {
+	setTestConfig(t)
+	err := Push(t.TempDir(), "test", "")
+	if err == nil || !strings.Contains(err.Error(), "Not logged in") {
+		t.Errorf("expected 'Not logged in' error, got: %v", err)
+	}
+}
+
+func TestPushDirNotExist(t *testing.T) {
+	setTestConfig(t)
+	SaveConfig(&Config{Token: "tok", Server: "http://localhost"})
+	err := Push("/nonexistent", "test", "")
+	if err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("expected 'does not exist' error, got: %v", err)
+	}
+}
+
+func TestPushNoHTMLFiles(t *testing.T) {
+	setTestConfig(t)
+	SaveConfig(&Config{Token: "tok", Server: "http://localhost"})
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "readme.txt"), []byte("no html"), 0644)
+	err := Push(dir, "test", "")
+	if err == nil || !strings.Contains(err.Error(), ".html file") {
+		t.Errorf("expected '.html file' error, got: %v", err)
+	}
+}
+
+func TestPushDefaultName(t *testing.T) {
+	setTestConfig(t)
+	var receivedName string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.ParseMultipartForm(10 << 20)
+		receivedName = r.FormValue("name")
+		json.NewEncoder(w).Encode(map[string]any{
+			"project_id": "p1", "version_id": "v1", "version_num": 1,
+		})
+	}))
+	defer srv.Close()
+
+	SaveConfig(&Config{Token: "tok", Server: srv.URL})
+	dir := filepath.Join(t.TempDir(), "my-project")
+	os.MkdirAll(dir, 0755)
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("ok"), 0644)
+
+	Push(dir, "", "")
+	if receivedName != "my-project" {
+		t.Errorf("name = %q, want 'my-project'", receivedName)
+	}
+}
+
+func TestPushSuccess(t *testing.T) {
+	setTestConfig(t)
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		// Verify it's a multipart upload with file and name
+		r.ParseMultipartForm(10 << 20)
+		file, _, _ := r.FormFile("file")
+		if file == nil {
+			t.Error("missing file in upload")
+		}
+		name := r.FormValue("name")
+		if name != "test-proj" {
+			t.Errorf("name = %q, want 'test-proj'", name)
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"project_id": "p123", "version_id": "v1", "version_num": float64(1),
+		})
+	}))
+	defer srv.Close()
+
+	SaveConfig(&Config{Token: "mytoken", Server: srv.URL})
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<h1>test</h1>"), 0644)
+
+	err := Push(dir, "test-proj", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer mytoken" {
+		t.Errorf("auth = %q, want 'Bearer mytoken'", gotAuth)
+	}
+}
+
+func TestPushServerError(t *testing.T) {
+	setTestConfig(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, "server broke")
+	}))
+	defer srv.Close()
+
+	SaveConfig(&Config{Token: "tok", Server: srv.URL})
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("ok"), 0644)
+
+	err := Push(dir, "test", "")
+	if err == nil {
+		t.Error("expected error for server error")
+	}
+}
+
+func TestPushServerOverride(t *testing.T) {
+	setTestConfig(t)
+	var called bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		json.NewEncoder(w).Encode(map[string]any{
+			"project_id": "p1", "version_id": "v1", "version_num": 1,
+		})
+	}))
+	defer srv.Close()
+
+	SaveConfig(&Config{Token: "tok", Server: "http://wrong-server"})
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("ok"), 0644)
+
+	Push(dir, "test", srv.URL)
+	if !called {
+		t.Error("server override not used")
+	}
+}
+
+func TestPushUploadContainsValidZip(t *testing.T) {
+	setTestConfig(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.ParseMultipartForm(10 << 20)
+		file, _, _ := r.FormFile("file")
+		data, _ := io.ReadAll(file)
+		// Verify it's a valid zip
+		zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+		if err != nil {
+			t.Errorf("invalid zip: %v", err)
+		}
+		found := false
+		for _, f := range zr.File {
+			if f.Name == "index.html" {
+				found = true
+			}
+		}
+		if !found {
+			t.Error("zip missing index.html")
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"project_id": "p1", "version_id": "v1", "version_num": 1,
+		})
+	}))
+	defer srv.Close()
+
+	SaveConfig(&Config{Token: "tok", Server: srv.URL})
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<h1>test</h1>"), 0644)
+
+	err := Push(dir, "test", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// --- Logout Tests ---
+
+func TestLogout(t *testing.T) {
+	setTestConfig(t)
+	SaveConfig(&Config{Server: "http://example.com", Token: "abc"})
+	if err := Logout(); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := LoadConfig()
+	if cfg.Token != "" {
+		t.Errorf("token should be empty after logout, got %q", cfg.Token)
+	}
+	if cfg.Server != "http://example.com" {
+		t.Errorf("server should be preserved, got %q", cfg.Server)
+	}
+}
+
+func TestLogoutNoConfig(t *testing.T) {
+	setTestConfig(t)
+	if err := Logout(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// --- Login Tests ---
+
+func TestLoginCallbackReceivesToken(t *testing.T) {
+	setTestConfig(t)
+
+	// Start a fake "server" that the CLI would open browser to
+	// We'll simulate the callback directly
+	go func() {
+		// Wait for the login server to start, then hit the callback
+		for i := 0; i < 50; i++ {
+			resp, err := http.Get("http://localhost:9876/callback?token=test-token&name=Test+User")
+			if err == nil {
+				resp.Body.Close()
+				return
+			}
+		}
+	}()
+
+	err := Login("http://localhost:8080")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, _ := LoadConfig()
+	if cfg.Token != "test-token" {
+		t.Errorf("token = %q, want 'test-token'", cfg.Token)
+	}
+	if cfg.Server != "http://localhost:8080" {
+		t.Errorf("server = %q, want 'http://localhost:8080'", cfg.Server)
+	}
+}
+
+func TestSaveConfigEmptyToken(t *testing.T) {
+	setTestConfig(t)
+	SaveConfig(&Config{Server: "http://example.com"})
+	cfg, _ := LoadConfig()
+	if cfg.Token != "" {
+		t.Errorf("token should be empty, got %q", cfg.Token)
+	}
+	if cfg.Server != "http://example.com" {
+		t.Errorf("server = %q", cfg.Server)
+	}
+}
+
+func TestLogoutPreservesServer(t *testing.T) {
+	setTestConfig(t)
+	SaveConfig(&Config{Server: "http://myserver.com", Token: "tok"})
+	Logout()
+	cfg, _ := LoadConfig()
+	if cfg.Server != "http://myserver.com" {
+		t.Errorf("server = %q, want 'http://myserver.com'", cfg.Server)
+	}
+}
+
+func TestPushUsesConfigServer(t *testing.T) {
+	setTestConfig(t)
+	var called bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		json.NewEncoder(w).Encode(map[string]any{
+			"project_id": "p1", "version_id": "v1", "version_num": 1,
+		})
+	}))
+	defer srv.Close()
+
+	SaveConfig(&Config{Token: "tok", Server: srv.URL})
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("ok"), 0644)
+
+	Push(dir, "test", "")
+	if !called {
+		t.Error("config server not used")
+	}
+}
+
+func TestZipDirectoryEmptyDir(t *testing.T) {
+	dir := t.TempDir()
+	buf, err := ZipDirectory(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := readZip(t, buf)
+	if len(files) != 0 {
+		t.Errorf("expected empty zip, got %d files", len(files))
+	}
+}
+
+func TestLoginServerURLFromConfig(t *testing.T) {
+	setTestConfig(t)
+	SaveConfig(&Config{Server: "http://localhost:8080"})
+
+	go func() {
+		for i := 0; i < 50; i++ {
+			resp, err := http.Get("http://localhost:9876/callback?token=tok2&name=User2")
+			if err == nil {
+				resp.Body.Close()
+				return
+			}
+		}
+	}()
+
+	err := Login("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := LoadConfig()
+	if cfg.Token != "tok2" {
+		t.Errorf("token = %q", cfg.Token)
+	}
+}
+
+func TestLoginCallbackMissingToken(t *testing.T) {
+	setTestConfig(t)
+
+	go func() {
+		for i := 0; i < 50; i++ {
+			resp, err := http.Get("http://localhost:9876/callback")
+			if err == nil {
+				resp.Body.Close()
+				// Now send a valid one
+				resp2, err2 := http.Get("http://localhost:9876/callback?token=valid")
+				if err2 == nil {
+					resp2.Body.Close()
+				}
+				return
+			}
+		}
+	}()
+
+	err := Login("http://localhost:8080")
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// --- Helpers ---
+
+func readZip(t *testing.T, buf *bytes.Buffer) map[string]string {
+	t.Helper()
+	r, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := make(map[string]string)
+	for _, f := range r.File {
+		rc, _ := f.Open()
+		data, _ := io.ReadAll(rc)
+		rc.Close()
+		files[f.Name] = string(data)
+	}
+	return files
+}
+
+func keys(m map[string]string) []string {
+	var ks []string
+	for k := range m {
+		ks = append(ks, k)
+	}
+	return ks
+}
