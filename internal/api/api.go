@@ -10,10 +10,11 @@ import (
 
 // DataStore abstracts database operations for testability.
 type DataStore interface {
-	CreateProject(name string) (*db.Project, error)
+	CreateProject(name, ownerEmail string) (*db.Project, error)
 	GetProject(id string) (*db.Project, error)
 	GetProjectByName(name string) (*db.Project, error)
 	ListProjectsWithVersionCount() ([]db.ProjectWithVersionCount, error)
+	ListProjectsWithVersionCountForUser(email string) ([]db.ProjectWithVersionCount, error)
 	UpdateProjectStatus(id, status string) error
 	CreateVersion(projectID, storagePath string) (*db.Version, error)
 	GetVersion(id string) (*db.Version, error)
@@ -27,6 +28,14 @@ type DataStore interface {
 	GetReplies(commentID string) ([]db.Reply, error)
 	CreateToken(token, userName, userEmail string) error
 	GetUserByToken(token string) (name, email string, err error)
+	CanAccessProject(projectID, email string) (bool, error)
+	GetProjectOwner(projectID string) (string, error)
+	CreateInvite(projectID, createdBy string) (*db.ProjectInvite, error)
+	GetInviteByToken(token string) (*db.ProjectInvite, error)
+	DeleteInvite(id string) error
+	AddMember(projectID, email string) error
+	ListMembers(projectID string) ([]db.ProjectMember, error)
+	RemoveMember(projectID, email string) error
 }
 
 type Handler struct {
@@ -57,14 +66,20 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	webViewer := http.HandlerFunc(h.handleViewer)
 	if h.Auth != nil {
 		mux.Handle("GET /{$}", h.webMiddleware(webHome))
-		mux.Handle("GET /projects/{id}", h.webMiddleware(webViewer))
+		mux.Handle("GET /projects/{id}", h.webMiddleware(h.projectAccess(webViewer)))
+		mux.Handle("GET /invite/{token}", h.webMiddleware(http.HandlerFunc(h.handleAcceptInvite)))
 	} else {
 		mux.Handle("GET /{$}", webHome)
 		mux.Handle("GET /projects/{id}", webViewer)
 	}
 
-	// Design files (no auth - served in iframe)
-	mux.HandleFunc("GET /designs/{version_id}/{filepath...}", h.handleDesignFile)
+	// Design files
+	designHandler := http.HandlerFunc(h.handleDesignFile)
+	if h.Auth != nil {
+		mux.Handle("GET /designs/{version_id}/{filepath...}", h.webMiddleware(h.versionAccess(designHandler)))
+	} else {
+		mux.Handle("GET /designs/{version_id}/{filepath...}", designHandler)
+	}
 
 	// API routes (API middleware)
 	apiUpload := http.HandlerFunc(h.handleUpload)
@@ -76,15 +91,26 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	apiCreateReply := http.HandlerFunc(h.handleCreateReply)
 	apiToggleResolve := http.HandlerFunc(h.handleToggleResolve)
 
+	// Sharing API handlers
+	apiCreateInvite := http.HandlerFunc(h.handleCreateInvite)
+	apiDeleteInvite := http.HandlerFunc(h.handleDeleteInvite)
+	apiListMembers := http.HandlerFunc(h.handleListMembers)
+	apiRemoveMember := http.HandlerFunc(h.handleRemoveMember)
+
 	if h.Auth != nil {
 		mux.Handle("POST /api/upload", h.apiMiddleware(apiUpload))
 		mux.Handle("GET /api/projects", h.apiMiddleware(apiListProjects))
-		mux.Handle("GET /api/projects/{id}/versions", h.apiMiddleware(apiListVersions))
-		mux.Handle("PATCH /api/projects/{id}/status", h.apiMiddleware(apiUpdateStatus))
-		mux.Handle("GET /api/versions/{id}/comments", h.apiMiddleware(apiGetComments))
-		mux.Handle("POST /api/versions/{id}/comments", h.apiMiddleware(apiCreateComment))
+		mux.Handle("GET /api/projects/{id}/versions", h.apiMiddleware(h.projectAccess(apiListVersions)))
+		mux.Handle("PATCH /api/projects/{id}/status", h.apiMiddleware(h.ownerOnly(apiUpdateStatus)))
+		mux.Handle("GET /api/versions/{id}/comments", h.apiMiddleware(h.versionAccess(apiGetComments)))
+		mux.Handle("POST /api/versions/{id}/comments", h.apiMiddleware(h.versionAccess(apiCreateComment)))
 		mux.Handle("POST /api/comments/{id}/replies", h.apiMiddleware(apiCreateReply))
 		mux.Handle("PATCH /api/comments/{id}/resolve", h.apiMiddleware(apiToggleResolve))
+		// Sharing routes
+		mux.Handle("POST /api/projects/{id}/invites", h.apiMiddleware(h.ownerOnly(apiCreateInvite)))
+		mux.Handle("DELETE /api/projects/{id}/invites/{inviteID}", h.apiMiddleware(h.ownerOnly(apiDeleteInvite)))
+		mux.Handle("GET /api/projects/{id}/members", h.apiMiddleware(h.projectAccess(apiListMembers)))
+		mux.Handle("DELETE /api/projects/{id}/members/{email}", h.apiMiddleware(h.ownerOnly(apiRemoveMember)))
 	} else {
 		mux.Handle("POST /api/upload", apiUpload)
 		mux.Handle("GET /api/projects", apiListProjects)
@@ -94,5 +120,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 		mux.Handle("POST /api/versions/{id}/comments", apiCreateComment)
 		mux.Handle("POST /api/comments/{id}/replies", apiCreateReply)
 		mux.Handle("PATCH /api/comments/{id}/resolve", apiToggleResolve)
+		mux.Handle("POST /api/projects/{id}/invites", apiCreateInvite)
+		mux.Handle("DELETE /api/projects/{id}/invites/{inviteID}", apiDeleteInvite)
+		mux.Handle("GET /api/projects/{id}/members", apiListMembers)
+		mux.Handle("DELETE /api/projects/{id}/members/{email}", apiRemoveMember)
 	}
 }

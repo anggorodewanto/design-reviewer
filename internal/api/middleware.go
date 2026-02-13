@@ -52,3 +52,71 @@ func (h *Handler) apiMiddleware(next http.Handler) http.Handler {
 		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 	})
 }
+
+// projectAccess checks that the authenticated user can access the project identified by {id}.
+func (h *Handler) projectAccess(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, email := auth.GetUserFromContext(r.Context())
+		if email == "" {
+			http.NotFound(w, r)
+			return
+		}
+		projectID := r.PathValue("id")
+		ok, err := h.DB.CanAccessProject(projectID, email)
+		if err != nil || !ok {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// versionAccess checks access via version_id → project lookup.
+func (h *Handler) versionAccess(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, email := auth.GetUserFromContext(r.Context())
+		if email == "" {
+			http.NotFound(w, r)
+			return
+		}
+		versionID := r.PathValue("id")
+		if versionID == "" {
+			versionID = r.PathValue("version_id")
+		}
+		v, err := h.DB.GetVersion(versionID)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		ok, err := h.DB.CanAccessProject(v.ProjectID, email)
+		if err != nil || !ok {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// ownerOnly checks that the authenticated user is the project owner.
+func (h *Handler) ownerOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, email := auth.GetUserFromContext(r.Context())
+		if email == "" {
+			http.NotFound(w, r)
+			return
+		}
+		projectID := r.PathValue("id")
+		owner, err := h.DB.GetProjectOwner(projectID)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if owner != email {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{"error": "owner only"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}

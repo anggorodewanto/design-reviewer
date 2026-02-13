@@ -73,7 +73,14 @@ func relativeTime(t time.Time) string {
 }
 
 func (h *Handler) handleListProjects(w http.ResponseWriter, r *http.Request) {
-	projects, err := h.DB.ListProjectsWithVersionCount()
+	_, email := auth.GetUserFromContext(r.Context())
+	var projects []db.ProjectWithVersionCount
+	var err error
+	if email != "" {
+		projects, err = h.DB.ListProjectsWithVersionCountForUser(email)
+	} else {
+		projects, err = h.DB.ListProjectsWithVersionCount()
+	}
 	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
@@ -129,7 +136,14 @@ func (h *Handler) handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleHome(w http.ResponseWriter, r *http.Request) {
-	projects, err := h.DB.ListProjectsWithVersionCount()
+	_, email := auth.GetUserFromContext(r.Context())
+	var projects []db.ProjectWithVersionCount
+	var err error
+	if email != "" {
+		projects, err = h.DB.ListProjectsWithVersionCountForUser(email)
+	} else {
+		projects, err = h.DB.ListProjectsWithVersionCount()
+	}
 	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return

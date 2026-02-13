@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/ab/design-reviewer/internal/auth"
 )
 
 func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
@@ -30,10 +32,19 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	_, email := auth.GetUserFromContext(r.Context())
+
 	// Get or create project
 	project, err := h.DB.GetProjectByName(name)
 	if err == sql.ErrNoRows {
-		project, err = h.DB.CreateProject(name)
+		project, err = h.DB.CreateProject(name, email)
+	} else if err == nil && email != "" {
+		// Check access for existing project
+		ok, aErr := h.DB.CanAccessProject(project.ID, email)
+		if aErr != nil || !ok {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
 	}
 	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)

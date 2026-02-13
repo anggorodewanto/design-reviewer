@@ -91,6 +91,7 @@ func (h *Handler) handleViewer(w http.ResponseWriter, r *http.Request) {
 		Pages       []string
 		DefaultPage string
 		UserName    string
+		IsOwner     bool
 	}{
 		ProjectName: project.Name,
 		ProjectID:   project.ID,
@@ -101,6 +102,10 @@ func (h *Handler) handleViewer(w http.ResponseWriter, r *http.Request) {
 		Pages:       pages,
 		DefaultPage: defaultPage,
 		UserName:    func() string { n, _ := auth.GetUserFromContext(r.Context()); return n }(),
+		IsOwner: func() bool {
+			_, e := auth.GetUserFromContext(r.Context())
+			return e != "" && project.OwnerEmail != nil && *project.OwnerEmail == e
+		}(),
 	}
 	tmpl.Execute(w, data)
 }
