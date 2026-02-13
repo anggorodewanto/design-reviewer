@@ -1,0 +1,11 @@
+{{define "content"}}
+<div class="container">
+    {{if .Error}}
+    <h1>Invite Error</h1>
+    <p class="empty">{{.Error}}</p>
+    <a href="/">← Back to Projects</a>
+    {{else}}
+    <p>Joining project…</p>
+    {{end}}
+</div>
+{{end}}

@@ -9,6 +9,7 @@
             <option value="approved"{{if eq .Status "approved"}} selected{{end}}>Approved</option>
             <option value="handed_off"{{if eq .Status "handed_off"}} selected{{end}}>Handed Off</option>
         </select>
+        {{if .IsOwner}}<button id="share-btn" class="btn-share" title="Share project">Share</button>{{end}}
     </header>
     <div class="viewer-body">
         <aside class="viewer-sidebar">
@@ -53,9 +54,24 @@
     </div>
 </div>
 <div id="comment-panel"></div>
+<div id="share-dialog" style="display:none" class="share-dialog">
+    <div class="share-dialog-content">
+        <h3>Share Project</h3>
+        <button id="generate-invite" class="btn-primary">Generate Invite Link</button>
+        <div id="invite-link-box" style="display:none">
+            <input id="invite-link" type="text" readonly class="invite-link-input">
+            <button id="copy-invite" class="btn-copy">Copy</button>
+        </div>
+        <h4>Members</h4>
+        <div id="members-list"></div>
+        <button id="close-share" class="btn-secondary">Close</button>
+    </div>
+</div>
 <script>
     window.authUser = {{if .UserName}}{name: "{{.UserName}}"}{{else}}null{{end}};
+    window.isOwner = {{.IsOwner}};
 </script>
 <script src="/static/viewer.js"></script>
 <script src="/static/annotations.js"></script>
+<script src="/static/sharing.js"></script>
 {{end}}
