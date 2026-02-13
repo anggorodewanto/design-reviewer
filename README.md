@@ -103,6 +103,25 @@ go build -o design-reviewer ./cmd/cli
 ./design-reviewer push ./my-mockup --name "Homepage Redesign" --server http://localhost:8080
 ```
 
+## Mockup Directory Structure
+
+The directory you push must contain at least one `.html` file. If an `index.html` is present, it will be used as the default page. CSS, JavaScript, images, and other assets are supported via relative paths.
+
+```
+my-mockup/
+├── index.html          # Default page (recommended)
+├── about.html          # Additional pages (optional)
+├── style.css
+└── images/
+    └── logo.png
+```
+
+Each `.html` file becomes a reviewable page in the viewer. You can scaffold a starting point with:
+
+```bash
+./design-reviewer init ./my-mockup
+```
+
 ## CLI Commands
 
 | Command | Description |
