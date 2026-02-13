@@ -1598,3 +1598,55 @@ func TestCLIUploadedDesignServesInViewer(t *testing.T) {
 		t.Errorf("expected design content, got %s", b)
 	}
 }
+
+// --- Phase 10: Dockerfile + Fly.io Deployment ---
+
+func TestDeploymentFilesExist(t *testing.T) {
+	files := []struct {
+		path     string
+		contains []string
+	}{
+		{"Dockerfile", []string{
+			"FROM golang:", "AS builder",
+			"CGO_ENABLED=1",
+			"go build -o server ./cmd/server",
+			"go build -o design-reviewer ./cmd/cli",
+			"FROM alpine:",
+			"ca-certificates",
+			"COPY web/ ./web/",
+			"/data/design-reviewer.db",
+		}},
+		{"fly.toml", []string{
+			`primary_region = "sin"`,
+			"internal_port = 8080",
+			`destination = "/data"`,
+			"auto_stop_machines",
+		}},
+		{".dockerignore", []string{".git", "data/"}},
+		{"scripts/deploy.sh", []string{"fly deploy", "fly volumes"}},
+		{"README.md", []string{"Design Reviewer", "go run ./cmd/server", "fly deploy"}},
+	}
+
+	for _, f := range files {
+		data, err := os.ReadFile(f.path)
+		if err != nil {
+			t.Fatalf("missing deployment file %s: %v", f.path, err)
+		}
+		content := string(data)
+		for _, want := range f.contains {
+			if !strings.Contains(content, want) {
+				t.Errorf("%s: missing expected content %q", f.path, want)
+			}
+		}
+	}
+}
+
+func TestDeployScriptIsExecutable(t *testing.T) {
+	info, err := os.Stat("scripts/deploy.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&0111 == 0 {
+		t.Error("scripts/deploy.sh is not executable")
+	}
+}
