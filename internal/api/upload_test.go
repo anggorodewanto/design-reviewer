@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+
+	"github.com/ab/design-reviewer/internal/auth"
 )
 
 func TestHandleUploadSuccess(t *testing.T) {
@@ -289,5 +291,33 @@ func TestHandleUploadCreateVersionDBError(t *testing.T) {
 	h.handleUpload(w, req)
 	if w.Code != 500 {
 		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestHandleUploadExistingProjectAccessDBError(t *testing.T) {
+	h := mockHandler(t, func(m *mockDB) { m.canAccessProjectErr = errDB })
+	// Create project first with real DB (mock delegates to real)
+	h.DB.CreateProject("access-err", "owner@t.com")
+
+	var zipBuf bytes.Buffer
+	zw := zip.NewWriter(&zipBuf)
+	f, _ := zw.Create("index.html")
+	f.Write([]byte("x"))
+	zw.Close()
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	mw.WriteField("name", "access-err")
+	fw, _ := mw.CreateFormFile("file", "upload.zip")
+	fw.Write(zipBuf.Bytes())
+	mw.Close()
+
+	req := httptest.NewRequest("POST", "/api/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req = req.WithContext(auth.SetUserInContext(req.Context(), "Other", "other@t.com"))
+	w := httptest.NewRecorder()
+	h.handleUpload(w, req)
+	if w.Code != 404 {
+		t.Errorf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }

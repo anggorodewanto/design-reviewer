@@ -31,6 +31,17 @@ type mockDB struct {
 	getVersionErr              error
 	getLatestVersionErr        error
 	createTokenErr             error
+	canAccessProjectErr        error
+	canAccessProjectResult     *bool
+	getProjectOwnerErr         error
+	getProjectOwnerResult      string
+	createInviteErr            error
+	getInviteByTokenErr        error
+	deleteInviteErr            error
+	addMemberErr               error
+	listMembersErr             error
+	removeMemberErr            error
+	listProjectsForUserErr     error
 }
 
 func (m *mockDB) GetUnresolvedCommentsUpTo(versionID string) ([]db.Comment, error) {
@@ -103,11 +114,11 @@ func (m *mockDB) GetProjectByName(name string) (*db.Project, error) {
 	return m.DataStore.GetProjectByName(name)
 }
 
-func (m *mockDB) CreateProject(name string) (*db.Project, error) {
+func (m *mockDB) CreateProject(name, ownerEmail string) (*db.Project, error) {
 	if m.createProjectErr != nil {
 		return nil, m.createProjectErr
 	}
-	return m.DataStore.CreateProject(name)
+	return m.DataStore.CreateProject(name, ownerEmail)
 }
 
 func (m *mockDB) CreateVersion(projectID, storagePath string) (*db.Version, error) {
@@ -143,6 +154,75 @@ func (m *mockDB) CreateToken(token, userName, userEmail string) error {
 		return m.createTokenErr
 	}
 	return m.DataStore.CreateToken(token, userName, userEmail)
+}
+
+func (m *mockDB) CanAccessProject(projectID, email string) (bool, error) {
+	if m.canAccessProjectErr != nil {
+		return false, m.canAccessProjectErr
+	}
+	if m.canAccessProjectResult != nil {
+		return *m.canAccessProjectResult, nil
+	}
+	return m.DataStore.CanAccessProject(projectID, email)
+}
+
+func (m *mockDB) GetProjectOwner(projectID string) (string, error) {
+	if m.getProjectOwnerErr != nil {
+		return "", m.getProjectOwnerErr
+	}
+	if m.getProjectOwnerResult != "" {
+		return m.getProjectOwnerResult, nil
+	}
+	return m.DataStore.GetProjectOwner(projectID)
+}
+
+func (m *mockDB) CreateInvite(projectID, createdBy string) (*db.ProjectInvite, error) {
+	if m.createInviteErr != nil {
+		return nil, m.createInviteErr
+	}
+	return m.DataStore.CreateInvite(projectID, createdBy)
+}
+
+func (m *mockDB) GetInviteByToken(token string) (*db.ProjectInvite, error) {
+	if m.getInviteByTokenErr != nil {
+		return nil, m.getInviteByTokenErr
+	}
+	return m.DataStore.GetInviteByToken(token)
+}
+
+func (m *mockDB) DeleteInvite(id string) error {
+	if m.deleteInviteErr != nil {
+		return m.deleteInviteErr
+	}
+	return m.DataStore.DeleteInvite(id)
+}
+
+func (m *mockDB) AddMember(projectID, email string) error {
+	if m.addMemberErr != nil {
+		return m.addMemberErr
+	}
+	return m.DataStore.AddMember(projectID, email)
+}
+
+func (m *mockDB) ListMembers(projectID string) ([]db.ProjectMember, error) {
+	if m.listMembersErr != nil {
+		return nil, m.listMembersErr
+	}
+	return m.DataStore.ListMembers(projectID)
+}
+
+func (m *mockDB) RemoveMember(projectID, email string) error {
+	if m.removeMemberErr != nil {
+		return m.removeMemberErr
+	}
+	return m.DataStore.RemoveMember(projectID, email)
+}
+
+func (m *mockDB) ListProjectsWithVersionCountForUser(email string) ([]db.ProjectWithVersionCount, error) {
+	if m.listProjectsForUserErr != nil {
+		return nil, m.listProjectsForUserErr
+	}
+	return m.DataStore.ListProjectsWithVersionCountForUser(email)
 }
 
 var errDB = errors.New("db failure")
@@ -338,7 +418,7 @@ func TestHandleToggleResolveNotFound(t *testing.T) {
 
 func TestHandleGetCommentsCarryOver(t *testing.T) {
 	h := setupTestHandler(t)
-	p, _ := h.DB.CreateProject("carry-proj")
+	p, _ := h.DB.CreateProject("carry-proj", "")
 	v1, _ := h.DB.CreateVersion(p.ID, "/tmp/v1")
 	v2, _ := h.DB.CreateVersion(p.ID, "/tmp/v2")
 
@@ -366,7 +446,7 @@ func TestHandleGetCommentsCarryOver(t *testing.T) {
 
 func TestHandleGetCommentsResolvedOnCurrentVersion(t *testing.T) {
 	h := setupTestHandler(t)
-	p, _ := h.DB.CreateProject("resolved-proj")
+	p, _ := h.DB.CreateProject("resolved-proj", "")
 	v1, _ := h.DB.CreateVersion(p.ID, "/tmp/v1")
 
 	// Create and resolve a comment on v1

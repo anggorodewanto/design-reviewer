@@ -7,11 +7,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/ab/design-reviewer/internal/auth"
 )
 
 func seedProject(t *testing.T, h *Handler, files map[string]string) (projectID, versionID string) {
 	t.Helper()
-	p, err := h.DB.CreateProject("test-proj")
+	p, err := h.DB.CreateProject("test-proj", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +109,7 @@ func TestHandleViewerProjectNotFound(t *testing.T) {
 
 func TestHandleViewerNoVersions(t *testing.T) {
 	h := setupTestHandler(t)
-	p, _ := h.DB.CreateProject("empty-proj")
+	p, _ := h.DB.CreateProject("empty-proj", "")
 
 	req := httptest.NewRequest("GET", "/projects/"+p.ID, nil)
 	req.SetPathValue("id", p.ID)
@@ -208,6 +210,74 @@ func TestHandleViewerGetLatestVersionDBError(t *testing.T) {
 	req.SetPathValue("id", pid)
 	w := httptest.NewRecorder()
 	h.handleViewer(w, req)
+	if w.Code != 500 {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestHandleViewerIsOwner(t *testing.T) {
+	h := setupTestHandler(t)
+	p, _ := h.DB.CreateProject("owner-proj", "alice@test.com")
+	v, _ := h.DB.CreateVersion(p.ID, "")
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	f, _ := zw.Create("index.html")
+	f.Write([]byte("<h1>hi</h1>"))
+	zw.Close()
+	h.Storage.SaveUpload(v.ID, &buf)
+
+	req := httptest.NewRequest("GET", "/projects/"+p.ID, nil)
+	req.SetPathValue("id", p.ID)
+	ctx := auth.SetUserInContext(req.Context(), "Alice", "alice@test.com")
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.handleViewer(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "share-btn") {
+		t.Error("owner should see share button")
+	}
+}
+
+func TestHandleViewerNotOwner(t *testing.T) {
+	h := setupTestHandler(t)
+	p, _ := h.DB.CreateProject("other-proj", "alice@test.com")
+	v, _ := h.DB.CreateVersion(p.ID, "")
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	f, _ := zw.Create("index.html")
+	f.Write([]byte("<h1>hi</h1>"))
+	zw.Close()
+	h.Storage.SaveUpload(v.ID, &buf)
+
+	req := httptest.NewRequest("GET", "/projects/"+p.ID, nil)
+	req.SetPathValue("id", p.ID)
+	ctx := auth.SetUserInContext(req.Context(), "Bob", "bob@test.com")
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.handleViewer(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "share-btn") {
+		t.Error("non-owner should not see share button")
+	}
+}
+
+func TestHandleViewerStorageError(t *testing.T) {
+	h := setupTestHandler(t)
+	p, _ := h.DB.CreateProject("proj", "")
+	// Create version but don't save any files — ListHTMLFiles will fail
+	h.DB.CreateVersion(p.ID, "")
+
+	req := httptest.NewRequest("GET", "/projects/"+p.ID, nil)
+	req.SetPathValue("id", p.ID)
+	w := httptest.NewRecorder()
+	h.handleViewer(w, req)
+
 	if w.Code != 500 {
 		t.Errorf("expected 500, got %d", w.Code)
 	}

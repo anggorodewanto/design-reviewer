@@ -321,8 +321,8 @@ func TestHandleLoginPage(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "Login with Google") {
-		t.Error("login page missing 'Login with Google' button")
+	if !strings.Contains(body, "Sign in with Google") {
+		t.Error("login page missing 'Sign in with Google' button")
 	}
 }
 

@@ -46,7 +46,7 @@ func TestHandleListProjectsEmpty(t *testing.T) {
 
 func TestHandleListProjectsWithData(t *testing.T) {
 	h := setupTestHandler(t)
-	p, _ := h.DB.CreateProject("test-proj")
+	p, _ := h.DB.CreateProject("test-proj", "")
 	h.DB.CreateVersion(p.ID, "/tmp/v1")
 
 	req := httptest.NewRequest("GET", "/api/projects", nil)
@@ -96,7 +96,7 @@ func TestHandleHomeEmpty(t *testing.T) {
 
 func TestHandleHomeWithProjects(t *testing.T) {
 	h := setupTestHandler(t)
-	p, _ := h.DB.CreateProject("my-design")
+	p, _ := h.DB.CreateProject("my-design", "")
 	h.DB.CreateVersion(p.ID, "/tmp/v1")
 
 	req := httptest.NewRequest("GET", "/", nil)
@@ -158,7 +158,7 @@ func TestRelativeTime(t *testing.T) {
 
 func TestHandleUpdateStatusSuccess(t *testing.T) {
 	h := setupTestHandler(t)
-	p, _ := h.DB.CreateProject("proj")
+	p, _ := h.DB.CreateProject("proj", "")
 
 	req := httptest.NewRequest("PATCH", "/api/projects/"+p.ID+"/status", strings.NewReader(`{"status":"in_review"}`))
 	req.SetPathValue("id", p.ID)
@@ -186,7 +186,7 @@ func TestHandleUpdateStatusSuccess(t *testing.T) {
 
 func TestHandleUpdateStatusAllStatuses(t *testing.T) {
 	h := setupTestHandler(t)
-	p, _ := h.DB.CreateProject("proj")
+	p, _ := h.DB.CreateProject("proj", "")
 
 	for _, s := range []string{"in_review", "approved", "handed_off", "draft"} {
 		req := httptest.NewRequest("PATCH", "/api/projects/"+p.ID+"/status", strings.NewReader(`{"status":"`+s+`"}`))
@@ -201,7 +201,7 @@ func TestHandleUpdateStatusAllStatuses(t *testing.T) {
 
 func TestHandleUpdateStatusInvalid(t *testing.T) {
 	h := setupTestHandler(t)
-	p, _ := h.DB.CreateProject("proj")
+	p, _ := h.DB.CreateProject("proj", "")
 
 	req := httptest.NewRequest("PATCH", "/api/projects/"+p.ID+"/status", strings.NewReader(`{"status":"bogus"}`))
 	req.SetPathValue("id", p.ID)

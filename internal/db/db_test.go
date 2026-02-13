@@ -18,7 +18,7 @@ func newTestDB(t *testing.T) *DB {
 
 func TestGetProject(t *testing.T) {
 	d := newTestDB(t)
-	p, _ := d.CreateProject("gp")
+	p, _ := d.CreateProject("gp", "")
 	got, err := d.GetProject(p.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +38,7 @@ func TestGetProjectNotFound(t *testing.T) {
 
 func TestGetProjectByName(t *testing.T) {
 	d := newTestDB(t)
-	p, _ := d.CreateProject("byname")
+	p, _ := d.CreateProject("byname", "")
 	got, err := d.GetProjectByName("byname")
 	if err != nil {
 		t.Fatal(err)
@@ -58,8 +58,8 @@ func TestGetProjectByNameNotFound(t *testing.T) {
 
 func TestListProjects(t *testing.T) {
 	d := newTestDB(t)
-	d.CreateProject("a")
-	d.CreateProject("b")
+	d.CreateProject("a", "")
+	d.CreateProject("b", "")
 	projects, err := d.ListProjects()
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +82,7 @@ func TestListProjectsEmpty(t *testing.T) {
 
 func TestUpdateProjectStatus(t *testing.T) {
 	d := newTestDB(t)
-	p, _ := d.CreateProject("st")
+	p, _ := d.CreateProject("st", "")
 	if err := d.UpdateProjectStatus(p.ID, "in_review"); err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestUpdateProjectStatus(t *testing.T) {
 
 func TestUpdateProjectStatusInvalid(t *testing.T) {
 	d := newTestDB(t)
-	p, _ := d.CreateProject("st2")
+	p, _ := d.CreateProject("st2", "")
 	if err := d.UpdateProjectStatus(p.ID, "bogus"); err == nil {
 		t.Error("expected error for invalid status")
 	}
@@ -110,7 +110,7 @@ func TestUpdateProjectStatusNotFound(t *testing.T) {
 
 func TestGetVersion(t *testing.T) {
 	d := newTestDB(t)
-	p, _ := d.CreateProject("vp")
+	p, _ := d.CreateProject("vp", "")
 	v, _ := d.CreateVersion(p.ID, "/path")
 	got, err := d.GetVersion(v.ID)
 	if err != nil {
@@ -131,7 +131,7 @@ func TestGetVersionNotFound(t *testing.T) {
 
 func TestGetLatestVersion(t *testing.T) {
 	d := newTestDB(t)
-	p, _ := d.CreateProject("lv")
+	p, _ := d.CreateProject("lv", "")
 	d.CreateVersion(p.ID, "/v1")
 	d.CreateVersion(p.ID, "/v2")
 	got, err := d.GetLatestVersion(p.ID)
@@ -145,7 +145,7 @@ func TestGetLatestVersion(t *testing.T) {
 
 func TestGetLatestVersionNotFound(t *testing.T) {
 	d := newTestDB(t)
-	p, _ := d.CreateProject("nover")
+	p, _ := d.CreateProject("nover", "")
 	_, err := d.GetLatestVersion(p.ID)
 	if err != sql.ErrNoRows {
 		t.Errorf("expected ErrNoRows, got %v", err)
@@ -165,7 +165,7 @@ func TestListProjectsWithVersionCountEmpty(t *testing.T) {
 
 func TestListProjectsWithVersionCountSingle(t *testing.T) {
 	d := newTestDB(t)
-	p, err := d.CreateProject("proj-a")
+	p, err := d.CreateProject("proj-a", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestListProjectsWithVersionCountSingle(t *testing.T) {
 
 func TestListProjectsWithVersionCountNoVersions(t *testing.T) {
 	d := newTestDB(t)
-	if _, err := d.CreateProject("empty-proj"); err != nil {
+	if _, err := d.CreateProject("empty-proj", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -211,8 +211,8 @@ func TestListProjectsWithVersionCountNoVersions(t *testing.T) {
 
 func TestListProjectsWithVersionCountMultiple(t *testing.T) {
 	d := newTestDB(t)
-	pa, _ := d.CreateProject("proj-a")
-	pb, _ := d.CreateProject("proj-b")
+	pa, _ := d.CreateProject("proj-a", "")
+	pb, _ := d.CreateProject("proj-b", "")
 	d.CreateVersion(pa.ID, "/tmp/v1")
 	d.CreateVersion(pa.ID, "/tmp/v2")
 	d.CreateVersion(pb.ID, "/tmp/v1")
@@ -241,8 +241,8 @@ func TestListProjectsWithVersionCountMultiple(t *testing.T) {
 func TestListProjectsWithVersionCountOrderByUpdatedAt(t *testing.T) {
 	d := newTestDB(t)
 	// Create "older" first, then manually set its updated_at to the past
-	p1, _ := d.CreateProject("older")
-	d.CreateProject("newer")
+	p1, _ := d.CreateProject("older", "")
+	d.CreateProject("newer", "")
 	d.Exec(`UPDATE projects SET updated_at = datetime('now', '-1 hour') WHERE id = ?`, p1.ID)
 
 	projects, err := d.ListProjectsWithVersionCount()
@@ -261,7 +261,7 @@ func TestListProjectsWithVersionCountOrderByUpdatedAt(t *testing.T) {
 
 func TestCreateCommentAndGet(t *testing.T) {
 	d := newTestDB(t)
-	p, _ := d.CreateProject("proj")
+	p, _ := d.CreateProject("proj", "")
 	v, _ := d.CreateVersion(p.ID, "/tmp/v1")
 
 	c, err := d.CreateComment(v.ID, "index.html", 10.5, 20.3, "Alice", "a@t.com", "hello")
@@ -286,7 +286,7 @@ func TestCreateCommentAndGet(t *testing.T) {
 
 func TestToggleResolve(t *testing.T) {
 	d := newTestDB(t)
-	p, _ := d.CreateProject("proj")
+	p, _ := d.CreateProject("proj", "")
 	v, _ := d.CreateVersion(p.ID, "/tmp/v1")
 	c, _ := d.CreateComment(v.ID, "index.html", 10, 20, "Alice", "a@t.com", "fix")
 
@@ -314,7 +314,7 @@ func TestToggleResolveNotFound(t *testing.T) {
 
 func TestCreateReplyAndGet(t *testing.T) {
 	d := newTestDB(t)
-	p, _ := d.CreateProject("proj")
+	p, _ := d.CreateProject("proj", "")
 	v, _ := d.CreateVersion(p.ID, "/tmp/v1")
 	c, _ := d.CreateComment(v.ID, "index.html", 10, 20, "Alice", "a@t.com", "hello")
 
@@ -337,7 +337,7 @@ func TestCreateReplyAndGet(t *testing.T) {
 
 func TestGetUnresolvedCommentsUpTo(t *testing.T) {
 	d := newTestDB(t)
-	p, _ := d.CreateProject("proj")
+	p, _ := d.CreateProject("proj", "")
 	v1, _ := d.CreateVersion(p.ID, "/tmp/v1")
 	v2, _ := d.CreateVersion(p.ID, "/tmp/v2")
 
@@ -366,7 +366,7 @@ func TestGetUnresolvedCommentsUpTo(t *testing.T) {
 
 func TestGetRepliesEmpty(t *testing.T) {
 	d := newTestDB(t)
-	p, _ := d.CreateProject("proj")
+	p, _ := d.CreateProject("proj", "")
 	v, _ := d.CreateVersion(p.ID, "/tmp/v1")
 	c, _ := d.CreateComment(v.ID, "index.html", 10, 20, "Alice", "a@t.com", "hello")
 
@@ -381,7 +381,7 @@ func TestGetRepliesEmpty(t *testing.T) {
 
 func TestGetRepliesOrder(t *testing.T) {
 	d := newTestDB(t)
-	p, _ := d.CreateProject("proj")
+	p, _ := d.CreateProject("proj", "")
 	v, _ := d.CreateVersion(p.ID, "/tmp/v1")
 	c, _ := d.CreateComment(v.ID, "index.html", 10, 20, "Alice", "a@t.com", "hello")
 
@@ -401,7 +401,7 @@ func TestGetRepliesOrder(t *testing.T) {
 
 func TestListVersionsEmpty(t *testing.T) {
 	d := newTestDB(t)
-	p, _ := d.CreateProject("empty")
+	p, _ := d.CreateProject("empty", "")
 	versions, err := d.ListVersions(p.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -413,7 +413,7 @@ func TestListVersionsEmpty(t *testing.T) {
 
 func TestListVersionsOrdered(t *testing.T) {
 	d := newTestDB(t)
-	p, _ := d.CreateProject("ordered")
+	p, _ := d.CreateProject("ordered", "")
 	d.CreateVersion(p.ID, "/v1")
 	d.CreateVersion(p.ID, "/v2")
 	d.CreateVersion(p.ID, "/v3")
@@ -435,8 +435,8 @@ func TestListVersionsOrdered(t *testing.T) {
 
 func TestListVersionsIsolatedByProject(t *testing.T) {
 	d := newTestDB(t)
-	p1, _ := d.CreateProject("proj1")
-	p2, _ := d.CreateProject("proj2")
+	p1, _ := d.CreateProject("proj1", "")
+	p2, _ := d.CreateProject("proj2", "")
 	d.CreateVersion(p1.ID, "/a")
 	d.CreateVersion(p1.ID, "/b")
 	d.CreateVersion(p2.ID, "/c")
@@ -503,7 +503,7 @@ func TestNewInvalidPath(t *testing.T) {
 
 func TestCreateProjectClosedDB(t *testing.T) {
 	d := closedDB(t)
-	_, err := d.CreateProject("x")
+	_, err := d.CreateProject("x", "")
 	if err == nil {
 		t.Error("expected error")
 	}
@@ -647,9 +647,262 @@ func TestGetUserByTokenClosedDB(t *testing.T) {
 
 func TestCreateProjectDuplicateName(t *testing.T) {
 	d := newTestDB(t)
-	d.CreateProject("dup")
-	_, err := d.CreateProject("dup")
+	d.CreateProject("dup", "")
+	_, err := d.CreateProject("dup", "")
 	if err == nil {
 		t.Error("expected error for duplicate name")
+	}
+}
+
+// --- Phase 12: Sharing ---
+
+func TestCreateProjectWithOwner(t *testing.T) {
+	d := newTestDB(t)
+	p, err := d.CreateProject("owned", "alice@test.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.OwnerEmail == nil || *p.OwnerEmail != "alice@test.com" {
+		t.Errorf("owner = %v, want alice@test.com", p.OwnerEmail)
+	}
+}
+
+func TestCreateProjectNullOwner(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("seed", "")
+	if p.OwnerEmail != nil {
+		t.Errorf("expected nil owner, got %v", p.OwnerEmail)
+	}
+	got, _ := d.GetProject(p.ID)
+	if got.OwnerEmail != nil {
+		t.Errorf("GetProject: expected nil owner, got %v", got.OwnerEmail)
+	}
+}
+
+func TestCanAccessProjectOwner(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("p", "alice@test.com")
+	ok, err := d.CanAccessProject(p.ID, "alice@test.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Error("owner should have access")
+	}
+}
+
+func TestCanAccessProjectNonMember(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("p", "alice@test.com")
+	ok, _ := d.CanAccessProject(p.ID, "bob@test.com")
+	if ok {
+		t.Error("non-member should not have access")
+	}
+}
+
+func TestCanAccessProjectMember(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("p", "alice@test.com")
+	d.AddMember(p.ID, "bob@test.com")
+	ok, _ := d.CanAccessProject(p.ID, "bob@test.com")
+	if !ok {
+		t.Error("member should have access")
+	}
+}
+
+func TestCanAccessProjectNullOwner(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("seed", "")
+	ok, _ := d.CanAccessProject(p.ID, "anyone@test.com")
+	if !ok {
+		t.Error("NULL owner project should be accessible to all")
+	}
+}
+
+func TestCanAccessProjectNotFound(t *testing.T) {
+	d := newTestDB(t)
+	ok, _ := d.CanAccessProject("nonexistent", "a@t.com")
+	if ok {
+		t.Error("nonexistent project should not be accessible")
+	}
+}
+
+func TestListProjectsWithVersionCountForUser(t *testing.T) {
+	d := newTestDB(t)
+	d.CreateProject("seed", "")
+	d.CreateProject("alice-proj", "alice@test.com")
+	bob, _ := d.CreateProject("bob-proj", "bob@test.com")
+	d.AddMember(bob.ID, "alice@test.com")
+
+	// Alice sees: seed + her own + bob's (as member)
+	projects, _ := d.ListProjectsWithVersionCountForUser("alice@test.com")
+	if len(projects) != 3 {
+		t.Errorf("alice should see 3 projects, got %d", len(projects))
+	}
+
+	// Charlie sees only seed
+	projects, _ = d.ListProjectsWithVersionCountForUser("charlie@test.com")
+	if len(projects) != 1 {
+		t.Errorf("charlie should see 1 project, got %d", len(projects))
+	}
+}
+
+func TestCreateInviteAndGetByToken(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("p", "alice@test.com")
+	inv, err := d.CreateInvite(p.ID, "alice@test.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inv.Token) != 64 {
+		t.Errorf("token len = %d, want 64", len(inv.Token))
+	}
+
+	got, err := d.GetInviteByToken(inv.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ProjectID != p.ID {
+		t.Errorf("project mismatch")
+	}
+}
+
+func TestGetInviteByTokenNotFound(t *testing.T) {
+	d := newTestDB(t)
+	_, err := d.GetInviteByToken("nonexistent")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestGetInviteByTokenExpired(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("p", "a@t.com")
+	inv, _ := d.CreateInvite(p.ID, "a@t.com")
+	// Set expires_at to the past
+	d.Exec(`UPDATE project_invites SET expires_at = datetime('now', '-1 hour') WHERE id = ?`, inv.ID)
+	_, err := d.GetInviteByToken(inv.Token)
+	if err == nil {
+		t.Error("expired invite should not be returned")
+	}
+}
+
+func TestDeleteInvite(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("p", "a@t.com")
+	inv, _ := d.CreateInvite(p.ID, "a@t.com")
+	d.DeleteInvite(inv.ID)
+	_, err := d.GetInviteByToken(inv.Token)
+	if err == nil {
+		t.Error("deleted invite should not be found")
+	}
+}
+
+func TestAddMemberDuplicate(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("p", "a@t.com")
+	d.AddMember(p.ID, "b@t.com")
+	err := d.AddMember(p.ID, "b@t.com")
+	if err != nil {
+		t.Errorf("duplicate AddMember should not error (INSERT OR IGNORE), got %v", err)
+	}
+	members, _ := d.ListMembers(p.ID)
+	if len(members) != 1 {
+		t.Errorf("expected 1 member, got %d", len(members))
+	}
+}
+
+func TestListMembersEmpty(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("p", "a@t.com")
+	members, err := d.ListMembers(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(members) != 0 {
+		t.Errorf("expected 0, got %d", len(members))
+	}
+}
+
+func TestRemoveMember(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("p", "a@t.com")
+	d.AddMember(p.ID, "b@t.com")
+	d.RemoveMember(p.ID, "b@t.com")
+	members, _ := d.ListMembers(p.ID)
+	if len(members) != 0 {
+		t.Errorf("expected 0 after removal, got %d", len(members))
+	}
+}
+
+func TestGetProjectOwner(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("p", "alice@test.com")
+	owner, err := d.GetProjectOwner(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owner != "alice@test.com" {
+		t.Errorf("owner = %q, want alice@test.com", owner)
+	}
+}
+
+func TestGetProjectOwnerNull(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("seed", "")
+	owner, err := d.GetProjectOwner(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owner != "" {
+		t.Errorf("expected empty owner for NULL, got %q", owner)
+	}
+}
+
+func TestGetProjectOwnerNotFound(t *testing.T) {
+	d := newTestDB(t)
+	_, err := d.GetProjectOwner("nonexistent")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestCanAccessProjectClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.CanAccessProject("x", "e")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestListProjectsWithVersionCountForUserClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.ListProjectsWithVersionCountForUser("e")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestCreateInviteClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.CreateInvite("x", "e")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestAddMemberClosedDB(t *testing.T) {
+	d := closedDB(t)
+	err := d.AddMember("x", "e")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestListMembersClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.ListMembers("x")
+	if err == nil {
+		t.Error("expected error")
 	}
 }

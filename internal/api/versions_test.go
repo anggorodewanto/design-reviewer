@@ -8,7 +8,7 @@ import (
 
 func TestHandleListVersionsEmpty(t *testing.T) {
 	h := setupTestHandler(t)
-	p, _ := h.DB.CreateProject("empty-ver")
+	p, _ := h.DB.CreateProject("empty-ver", "")
 
 	req := httptest.NewRequest("GET", "/api/projects/"+p.ID+"/versions", nil)
 	req.SetPathValue("id", p.ID)
@@ -27,7 +27,7 @@ func TestHandleListVersionsEmpty(t *testing.T) {
 
 func TestHandleListVersionsOrdered(t *testing.T) {
 	h := setupTestHandler(t)
-	p, _ := h.DB.CreateProject("ver-order")
+	p, _ := h.DB.CreateProject("ver-order", "")
 	h.DB.CreateVersion(p.ID, "")
 	h.DB.CreateVersion(p.ID, "")
 	h.DB.CreateVersion(p.ID, "")
@@ -56,7 +56,7 @@ func TestHandleListVersionsOrdered(t *testing.T) {
 
 func TestHandleListVersionsResponseFormat(t *testing.T) {
 	h := setupTestHandler(t)
-	p, _ := h.DB.CreateProject("ver-fmt")
+	p, _ := h.DB.CreateProject("ver-fmt", "")
 	h.DB.CreateVersion(p.ID, "")
 
 	req := httptest.NewRequest("GET", "/api/projects/"+p.ID+"/versions", nil)

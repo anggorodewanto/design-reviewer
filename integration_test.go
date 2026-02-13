@@ -754,7 +754,7 @@ func TestListVersionsAPI(t *testing.T) {
 
 func TestListVersionsAPIEmpty(t *testing.T) {
 	env := setup(t)
-	p, _ := env.DB.CreateProject("no-versions")
+	p, _ := env.DB.CreateProject("no-versions", "")
 
 	resp, err := http.Get(env.Server.URL + "/api/projects/" + p.ID + "/versions")
 	if err != nil {
@@ -1137,7 +1137,7 @@ func TestLoginPageRendersGoogleButton(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(b), "Login with Google") {
+	if !strings.Contains(string(b), "Sign in with Google") {
 		t.Error("login page missing Google login button")
 	}
 }
@@ -1236,8 +1236,8 @@ func TestLogoutClearsSession(t *testing.T) {
 func TestCommentAuthorFromAuth(t *testing.T) {
 	env, sessionVal := setupWithAuth(t)
 
-	// Upload a project (need token for API)
-	env.DB.CreateToken("upload-token", "Uploader", "up@test.com")
+	// Upload a project (need token for API) — use same email as session user
+	env.DB.CreateToken("upload-token", "IntegrationUser", "integration@test.com")
 	z := makeZip(t, map[string]string{"index.html": "<h1>hi</h1>"})
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
@@ -1341,8 +1341,8 @@ func TestViewerRequiresAuth(t *testing.T) {
 		return http.ErrUseLastResponse
 	}}
 
-	// Upload a project first
-	env.DB.CreateToken("tok", "U", "u@t.com")
+	// Upload a project with the session user so they have access
+	env.DB.CreateToken("tok", "IntegrationUser", "integration@test.com")
 	z := makeZip(t, map[string]string{"index.html": "x"})
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
@@ -1563,8 +1563,8 @@ func TestCLIOAuthCallbackRedirectsToCLI(t *testing.T) {
 }
 
 func TestCLIUploadedDesignServesInViewer(t *testing.T) {
-	env, _ := setupWithAuth(t)
-	env.DB.CreateToken("cli-tok", "U", "u@t.com")
+	env, sessionVal := setupWithAuth(t)
+	env.DB.CreateToken("cli-tok", "IntegrationUser", "integration@test.com")
 
 	z := makeZip(t, map[string]string{
 		"index.html": "<h1>Design from CLI</h1>",
@@ -1588,8 +1588,10 @@ func TestCLIUploadedDesignServesInViewer(t *testing.T) {
 
 	vid := result["version_id"].(string)
 
-	// Verify the uploaded design files are served
-	resp2, err := http.Get(env.Server.URL + "/designs/" + vid + "/index.html")
+	// Verify the uploaded design files are served (with auth cookie)
+	req2, _ := http.NewRequest("GET", env.Server.URL+"/designs/"+vid+"/index.html", nil)
+	req2.AddCookie(&http.Cookie{Name: "session", Value: sessionVal})
+	resp2, err := (&http.Client{}).Do(req2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1721,5 +1723,201 @@ func TestInitDoesNotAffectOtherFiles(t *testing.T) {
 	// DESIGN_GUIDELINES.md should exist
 	if _, err := os.Stat(filepath.Join(dir, "DESIGN_GUIDELINES.md")); err != nil {
 		t.Error("DESIGN_GUIDELINES.md not created")
+	}
+}
+
+// --- Phase 12: Project Sharing & Access Control ---
+
+func setupWithAuthUser(t *testing.T, name, email string) (*testEnv, string) {
+	t.Helper()
+	tmp := t.TempDir()
+	database, err := db.New(filepath.Join(tmp, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := storage.New(filepath.Join(tmp, "uploads"))
+	authCfg := &authpkg.Config{
+		ClientID: "test", ClientSecret: "test",
+		RedirectURL: "http://localhost/auth/google/callback",
+		SessionSecret: "test-secret", BaseURL: "http://localhost",
+	}
+	h := &api.Handler{
+		DB: database, Storage: store,
+		TemplatesDir: "web/templates", StaticDir: "web/static",
+		Auth: authCfg, OAuthConfig: &mockOAuthProvider{name: name, email: email},
+	}
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(func() { srv.Close(); database.Close() })
+	sessionVal, _ := authpkg.SignSession(authCfg.SessionSecret, authpkg.User{Name: name, Email: email})
+	return &testEnv{Server: srv, DB: database, Storage: store, TmpDir: tmp}, sessionVal
+}
+
+func authUpload(t *testing.T, baseURL, name, token string, zipData []byte) map[string]any {
+	t.Helper()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	mw.WriteField("name", name)
+	fw, _ := mw.CreateFormFile("file", "upload.zip")
+	fw.Write(zipData)
+	mw.Close()
+	req, _ := http.NewRequest("POST", baseURL+"/api/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("upload failed: %d %s", resp.StatusCode, b)
+	}
+	var result map[string]any
+	json.NewDecoder(resp.Body).Decode(&result)
+	return result
+}
+
+func TestUploadSetsOwnerEmail(t *testing.T) {
+	env, _ := setupWithAuthUser(t, "Alice", "alice@test.com")
+	env.DB.CreateToken("tok", "Alice", "alice@test.com")
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := authUpload(t, env.Server.URL, "my-proj", "tok", z)
+
+	p, err := env.DB.GetProject(res["project_id"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.OwnerEmail == nil || *p.OwnerEmail != "alice@test.com" {
+		t.Errorf("owner = %v, want alice@test.com", p.OwnerEmail)
+	}
+}
+
+func TestUserScopedProjectListing(t *testing.T) {
+	env, session := setupWithAuthUser(t, "Alice", "alice@test.com")
+	env.DB.CreateToken("tok", "Alice", "alice@test.com")
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	authUpload(t, env.Server.URL, "alice-proj", "tok", z)
+
+	// Create another user's project directly
+	env.DB.CreateProject("bob-proj", "bob@test.com")
+
+	// Alice should only see her own project
+	req, _ := http.NewRequest("GET", env.Server.URL+"/api/projects", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: session})
+	resp, _ := (&http.Client{}).Do(req)
+	defer resp.Body.Close()
+	var projects []map[string]any
+	json.NewDecoder(resp.Body).Decode(&projects)
+	if len(projects) != 1 {
+		t.Fatalf("expected 1 project, got %d", len(projects))
+	}
+	if projects[0]["name"] != "alice-proj" {
+		t.Errorf("expected alice-proj, got %v", projects[0]["name"])
+	}
+}
+
+func TestInviteFlowEndToEnd(t *testing.T) {
+	env, aliceSession := setupWithAuthUser(t, "Alice", "alice@test.com")
+	env.DB.CreateToken("tok", "Alice", "alice@test.com")
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := authUpload(t, env.Server.URL, "shared-proj", "tok", z)
+	pid := res["project_id"].(string)
+
+	// Alice creates invite
+	req, _ := http.NewRequest("POST", env.Server.URL+"/api/projects/"+pid+"/invites", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: aliceSession})
+	resp, _ := (&http.Client{}).Do(req)
+	var invRes map[string]string
+	json.NewDecoder(resp.Body).Decode(&invRes)
+	resp.Body.Close()
+	inviteURL := invRes["invite_url"]
+	if inviteURL == "" {
+		t.Fatal("no invite_url returned")
+	}
+
+	// Bob accepts invite
+	bobSession, _ := authpkg.SignSession("test-secret", authpkg.User{Name: "Bob", Email: "bob@test.com"})
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	// Extract token from URL
+	token := inviteURL[strings.LastIndex(inviteURL, "/")+1:]
+	req2, _ := http.NewRequest("GET", env.Server.URL+"/invite/"+token, nil)
+	req2.AddCookie(&http.Cookie{Name: "session", Value: bobSession})
+	resp2, _ := client.Do(req2)
+	resp2.Body.Close()
+	if resp2.StatusCode != 302 {
+		t.Fatalf("expected 302, got %d", resp2.StatusCode)
+	}
+
+	// Bob can now access the project
+	req3, _ := http.NewRequest("GET", env.Server.URL+"/projects/"+pid, nil)
+	req3.AddCookie(&http.Cookie{Name: "session", Value: bobSession})
+	resp3, _ := (&http.Client{}).Do(req3)
+	resp3.Body.Close()
+	if resp3.StatusCode != 200 {
+		t.Errorf("bob should access project after invite, got %d", resp3.StatusCode)
+	}
+}
+
+func TestNonMemberGets404(t *testing.T) {
+	env, _ := setupWithAuthUser(t, "Alice", "alice@test.com")
+	env.DB.CreateToken("tok", "Alice", "alice@test.com")
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := authUpload(t, env.Server.URL, "private-proj", "tok", z)
+	pid := res["project_id"].(string)
+
+	// Bob tries to access
+	bobSession, _ := authpkg.SignSession("test-secret", authpkg.User{Name: "Bob", Email: "bob@test.com"})
+	req, _ := http.NewRequest("GET", env.Server.URL+"/projects/"+pid, nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: bobSession})
+	resp, _ := (&http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}).Do(req)
+	resp.Body.Close()
+	if resp.StatusCode != 404 {
+		t.Errorf("non-member should get 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestNonOwnerCannotCreateInvite(t *testing.T) {
+	env, _ := setupWithAuthUser(t, "Alice", "alice@test.com")
+	env.DB.CreateToken("tok", "Alice", "alice@test.com")
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := authUpload(t, env.Server.URL, "proj", "tok", z)
+	pid := res["project_id"].(string)
+
+	// Add Bob as member
+	env.DB.AddMember(pid, "bob@test.com")
+
+	// Bob tries to create invite — should get 403
+	bobSession, _ := authpkg.SignSession("test-secret", authpkg.User{Name: "Bob", Email: "bob@test.com"})
+	req, _ := http.NewRequest("POST", env.Server.URL+"/api/projects/"+pid+"/invites", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: bobSession})
+	resp, _ := (&http.Client{}).Do(req)
+	resp.Body.Close()
+	if resp.StatusCode != 403 {
+		t.Errorf("non-owner should get 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestSeedProjectVisibleToAll(t *testing.T) {
+	env, session := setupWithAuthUser(t, "Alice", "alice@test.com")
+	// Create a seed-like project with no owner
+	env.DB.CreateProject("Seed Project", "")
+
+	req, _ := http.NewRequest("GET", env.Server.URL+"/api/projects", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: session})
+	resp, _ := (&http.Client{}).Do(req)
+	defer resp.Body.Close()
+	var projects []map[string]any
+	json.NewDecoder(resp.Body).Decode(&projects)
+	if len(projects) != 1 {
+		t.Fatalf("expected 1 project (seed), got %d", len(projects))
+	}
+	if projects[0]["name"] != "Seed Project" {
+		t.Errorf("expected Seed Project, got %v", projects[0]["name"])
 	}
 }
