@@ -131,6 +131,39 @@ Each `.html` file becomes a reviewable page in the viewer. You can scaffold a st
 | `push <dir> --name <name> --server URL` | Upload a design directory |
 | `init [dir]` | Generate a `DESIGN_GUIDELINES.md` template |
 
+## For Designers (CLI-Only Setup)
+
+If your team already has a server running, you just need the CLI binary.
+
+### 1. Download
+
+Grab the latest binary for your platform from [Releases](https://github.com/anggorodewanto/design-reviewer/releases).
+
+On macOS/Linux, make it executable:
+
+```bash
+chmod +x design-reviewer-*
+mv design-reviewer-* /usr/local/bin/design-reviewer
+```
+
+### 2. Log in
+
+```bash
+design-reviewer login --server https://your-server-url
+```
+
+This opens your browser for Google sign-in. Once authenticated, you're ready to push designs.
+
+### 3. Push a design
+
+Create a directory with your HTML/CSS mockup (must contain at least one `.html` file), then:
+
+```bash
+design-reviewer push ./my-mockup --name "Homepage Redesign" --server https://your-server-url
+```
+
+Use `design-reviewer init ./my-mockup` to generate a starter template with design guidelines.
+
 ## Deployment (Fly.io)
 
 ```bash
