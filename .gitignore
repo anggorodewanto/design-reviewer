@@ -1,3 +1,5 @@
 data/
 coverage.out
 coverage_combined.out
+.env
+/server

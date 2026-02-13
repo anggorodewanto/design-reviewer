@@ -6,6 +6,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
+
+	"github.com/joho/godotenv"
 
 	"github.com/ab/design-reviewer/internal/api"
 	"github.com/ab/design-reviewer/internal/auth"
@@ -14,10 +17,14 @@ import (
 )
 
 func main() {
+	_ = godotenv.Load()
+
 	port := flag.Int("port", 8080, "server port")
 	dbPath := flag.String("db", "./data/design-reviewer.db", "SQLite database path")
 	uploads := flag.String("uploads", "./data/uploads", "upload directory")
 	flag.Parse()
+
+	os.MkdirAll(filepath.Dir(*dbPath), 0o755)
 
 	database, err := db.New(*dbPath)
 	if err != nil {
