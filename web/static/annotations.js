@@ -25,7 +25,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // Load comments from API
     function loadComments() {
-        fetch("/api/versions/" + versionID + "/comments")
+        return fetch("/api/versions/" + versionID + "/comments")
             .then(function (r) { return r.json(); })
             .then(function (data) {
                 comments = data || [];
@@ -36,12 +36,12 @@ document.addEventListener("DOMContentLoaded", function () {
     // Render pin markers on overlay
     function renderPins() {
         overlay.querySelectorAll(".pin-marker").forEach(function (el) { el.remove(); });
-        var num = 0;
-        comments.forEach(function (c, i) {
-            if (c.page !== currentPage) return;
+        var pageComments = [];
+        comments.forEach(function (c) { if (c.page === currentPage) pageComments.push(c); });
+        pageComments.forEach(function (c, i) {
+            var num = i + 1;
             if (currentFilter === "open" && c.resolved) return;
             if (currentFilter === "resolved" && !c.resolved) return;
-            num++;
             var pin = document.createElement("div");
             pin.className = "pin-marker" + (c.resolved ? " pin-resolved" : "");
             pin.style.left = c.x_percent + "%";
@@ -130,7 +130,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ author_name: name || "Anonymous", author_email: "", body: body })
-            }).then(function () { loadComments(); openPanelById(c.id); });
+            }).then(function () { loadComments().then(function () { openPanelById(c.id); }); });
         });
         document.getElementById("rp-resolve").addEventListener("click", function () {
             fetch("/api/comments/" + c.id + "/resolve", { method: "PATCH" })
@@ -154,6 +154,74 @@ document.addEventListener("DOMContentLoaded", function () {
         var d = new Date(iso);
         return d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     }
+
+    // --- Comments Sidebar ---
+    var csSidebar = document.getElementById("comments-sidebar");
+    var csList = document.getElementById("comments-sidebar-list");
+    var csToggle = document.getElementById("toggle-comments-sidebar");
+
+    if (csToggle) {
+        csToggle.addEventListener("click", function () {
+            csSidebar.classList.toggle("open");
+            csToggle.classList.toggle("active");
+            if (csSidebar.classList.contains("open")) renderCommentsSidebar();
+            // Re-measure after sidebar transition completes
+            setTimeout(function () { window.dispatchEvent(new Event("resize")); }, 300);
+        });
+    }
+
+    function renderCommentsSidebar() {
+        if (!csList) return;
+        csList.innerHTML = "";
+        var pageComments = [];
+        comments.forEach(function (c) { if (c.page === currentPage) pageComments.push(c); });
+        var shown = 0;
+        pageComments.forEach(function (c, i) {
+            var num = i + 1;
+            if (currentFilter === "open" && c.resolved) return;
+            if (currentFilter === "resolved" && !c.resolved) return;
+            shown++;
+            var item = document.createElement("div");
+            item.className = "cs-item" + (c.resolved ? " cs-resolved" : "");
+            item.innerHTML = '<div style="display:flex;align-items:center;gap:6px"><span class="cs-pin-num">' + num + '</span><span class="cs-author">' + esc(c.author_name) + '</span></div>' +
+                '<div class="cs-body">' + esc(c.body) + '</div>' +
+                '<div class="cs-meta"><span>' + fmtTime(c.created_at) + '</span>' +
+                (c.replies && c.replies.length ? '<span>' + c.replies.length + ' repl' + (c.replies.length === 1 ? 'y' : 'ies') + '</span>' : '') +
+                '</div>';
+            item.addEventListener("click", function () {
+                scrollToPin(c);
+                openPanel(c);
+            });
+            csList.appendChild(item);
+        });
+        if (shown === 0) csList.innerHTML = '<div style="padding:1rem;text-align:center;color:var(--text-muted);font-size:0.8rem;">No comments</div>';
+    }
+
+    function scrollToPin(c) {
+        var wrapper = document.querySelector(".iframe-wrapper");
+        if (!wrapper) return;
+        var pinY = (c.y_percent / 100) * overlay.offsetHeight;
+        wrapper.scrollTo({ top: Math.max(0, pinY - wrapper.clientHeight / 3), behavior: "smooth" });
+    }
+
+    // Patch renderPins to also update sidebar
+    var _origRenderPins = renderPins;
+    renderPins = function () {
+        _origRenderPins();
+        if (csSidebar && csSidebar.classList.contains("open")) renderCommentsSidebar();
+    };
+
+    // Viewport switcher
+    document.querySelectorAll(".viewport-btn").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            document.querySelectorAll(".viewport-btn").forEach(function (b) { b.classList.remove("active"); });
+            btn.classList.add("active");
+            var w = btn.dataset.width + "px";
+            frame.style.width = w;
+            frame.style.minWidth = w;
+            setTimeout(function () { window.dispatchEvent(new Event("resize")); }, 50);
+        });
+    });
 
     // Filter buttons
     filterBtns.forEach(function (btn) {

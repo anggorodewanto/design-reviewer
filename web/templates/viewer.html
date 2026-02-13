@@ -29,6 +29,10 @@
                 <button class="filter-btn active" data-filter="all">All</button>
                 <button class="filter-btn" data-filter="open">Open</button>
                 <button class="filter-btn" data-filter="resolved">Resolved</button>
+                <span class="filter-sep"></span>
+                <button class="viewport-btn active" data-width="1080">Desktop</button>
+                <button class="viewport-btn" data-width="375">Mobile</button>
+                <button id="toggle-comments-sidebar" class="btn-comments-toggle" title="Toggle comments list">💬</button>
             </div>
             <div class="iframe-wrapper">
                 <div id="pin-overlay"></div>
@@ -40,6 +44,12 @@
                 ></iframe>
             </div>
         </main>
+        <aside id="comments-sidebar" class="comments-sidebar">
+            <div class="sidebar-section">
+                <h3>Comments</h3>
+            </div>
+            <div id="comments-sidebar-list"></div>
+        </aside>
     </div>
 </div>
 <div id="comment-panel"></div>
