@@ -1,18 +1,29 @@
-app = "design-reviewer"
-primary_region = "sin"
+# fly.toml app configuration file generated for design-reviewer on 2026-02-14T03:09:12+07:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'design-reviewer'
+primary_region = 'nrt'
 
 [build]
+
+[env]
+  BASE_URL = 'https://design-reviewer.fly.dev'
+
+[[mounts]]
+  source = 'data'
+  destination = '/data'
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = true
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
 
-[mounts]
-  source = "data"
-  destination = "/data"
-
-[env]
-  BASE_URL = "https://design-reviewer.fly.dev"
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = 256
+  cpu_kind = 'shared'
+  cpus = 1
