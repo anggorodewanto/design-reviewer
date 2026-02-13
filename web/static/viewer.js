@@ -7,6 +7,19 @@ document.addEventListener("DOMContentLoaded", function () {
     var frame = document.getElementById("design-frame");
     var tabs = document.getElementById("page-tabs");
 
+    // Auto-resize iframe and pin overlay to content height
+    function resizeFrame() {
+        try {
+            var doc = frame.contentDocument || frame.contentWindow.document;
+            frame.style.height = "0";
+            var h = doc.documentElement.scrollHeight + "px";
+            frame.style.height = h;
+            var overlay = document.getElementById("pin-overlay");
+            if (overlay) overlay.style.height = h;
+        } catch (e) {}
+    }
+    frame.addEventListener("load", resizeFrame);
+
     // Fetch and render version list in sidebar
     fetch("/api/projects/" + projectID + "/versions")
         .then(function (r) { return r.json(); })
@@ -58,6 +71,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
         // Update iframe
         frame.src = "/designs/" + versionID + "/" + defaultPage;
+        frame.parentElement.scrollTop = 0;
 
         // Update URL
         history.replaceState(null, "", "/projects/" + projectID + "?version=" + versionID);
@@ -76,6 +90,7 @@ document.addEventListener("DOMContentLoaded", function () {
             tabs.querySelector(".active").classList.remove("active");
             btn.classList.add("active");
             frame.src = "/designs/" + currentVersionID + "/" + btn.dataset.page;
+            frame.parentElement.scrollTop = 0;
         });
     }
 

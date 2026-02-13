@@ -125,11 +125,12 @@ a:hover { text-decoration: underline; }
 
 /* --- Phase 5: Annotations --- */
 
-.iframe-wrapper { position: relative; flex: 1; display: flex; min-height: 0; }
+.iframe-wrapper { position: relative; flex: 1; min-height: 0; overflow: auto; }
+.iframe-wrapper::after { content: ""; display: block; height: 50vh; flex-shrink: 0; }
 
 #pin-overlay {
     position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
+    top: 0; left: 0; right: 0;
     z-index: 10;
     cursor: crosshair;
 }
