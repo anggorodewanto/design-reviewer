@@ -1,7 +1,9 @@
 package db
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -10,11 +12,27 @@ import (
 )
 
 type Project struct {
+	ID         string
+	Name       string
+	OwnerEmail *string
+	Status     string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+type ProjectInvite struct {
 	ID        string
-	Name      string
-	Status    string
+	ProjectID string
+	Token     string
+	CreatedBy string
 	CreatedAt time.Time
-	UpdatedAt time.Time
+	ExpiresAt *time.Time
+}
+
+type ProjectMember struct {
+	ProjectID string
+	UserEmail string
+	AddedAt   time.Time
 }
 
 type Version struct {
@@ -55,6 +73,7 @@ const schema = `
 CREATE TABLE IF NOT EXISTS projects (
     id TEXT PRIMARY KEY,
     name TEXT UNIQUE NOT NULL,
+    owner_email TEXT,
     status TEXT NOT NULL DEFAULT 'draft',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -96,6 +115,22 @@ CREATE TABLE IF NOT EXISTS tokens (
     user_email TEXT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS project_invites (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id),
+    token TEXT NOT NULL UNIQUE,
+    created_by TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME
+);
+
+CREATE TABLE IF NOT EXISTS project_members (
+    project_id TEXT NOT NULL REFERENCES projects(id),
+    user_email TEXT NOT NULL,
+    added_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (project_id, user_email)
+);
 `
 
 func New(dbPath string) (*DB, error) {
@@ -117,15 +152,20 @@ func New(dbPath string) (*DB, error) {
 
 // --- Projects ---
 
-func (d *DB) CreateProject(name string) (*Project, error) {
+func (d *DB) CreateProject(name, ownerEmail string) (*Project, error) {
 	p := &Project{
 		ID:     uuid.NewString(),
 		Name:   name,
 		Status: "draft",
 	}
+	var owner *string
+	if ownerEmail != "" {
+		owner = &ownerEmail
+	}
+	p.OwnerEmail = owner
 	err := d.QueryRow(
-		`INSERT INTO projects (id, name, status) VALUES (?, ?, ?) RETURNING created_at, updated_at`,
-		p.ID, p.Name, p.Status,
+		`INSERT INTO projects (id, name, owner_email, status) VALUES (?, ?, ?, ?) RETURNING created_at, updated_at`,
+		p.ID, p.Name, owner, p.Status,
 	).Scan(&p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -135,8 +175,8 @@ func (d *DB) CreateProject(name string) (*Project, error) {
 
 func (d *DB) GetProject(id string) (*Project, error) {
 	p := &Project{}
-	err := d.QueryRow(`SELECT id, name, status, created_at, updated_at FROM projects WHERE id = ?`, id).
-		Scan(&p.ID, &p.Name, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+	err := d.QueryRow(`SELECT id, name, owner_email, status, created_at, updated_at FROM projects WHERE id = ?`, id).
+		Scan(&p.ID, &p.Name, &p.OwnerEmail, &p.Status, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -145,8 +185,8 @@ func (d *DB) GetProject(id string) (*Project, error) {
 
 func (d *DB) GetProjectByName(name string) (*Project, error) {
 	p := &Project{}
-	err := d.QueryRow(`SELECT id, name, status, created_at, updated_at FROM projects WHERE name = ?`, name).
-		Scan(&p.ID, &p.Name, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+	err := d.QueryRow(`SELECT id, name, owner_email, status, created_at, updated_at FROM projects WHERE name = ?`, name).
+		Scan(&p.ID, &p.Name, &p.OwnerEmail, &p.Status, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +194,7 @@ func (d *DB) GetProjectByName(name string) (*Project, error) {
 }
 
 func (d *DB) ListProjects() ([]Project, error) {
-	rows, err := d.Query(`SELECT id, name, status, created_at, updated_at FROM projects ORDER BY updated_at DESC`)
+	rows, err := d.Query(`SELECT id, name, owner_email, status, created_at, updated_at FROM projects ORDER BY updated_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +202,7 @@ func (d *DB) ListProjects() ([]Project, error) {
 	var projects []Project
 	for rows.Next() {
 		var p Project
-		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.OwnerEmail, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		projects = append(projects, p)
@@ -404,4 +444,121 @@ func (d *DB) CreateToken(token, userName, userEmail string) error {
 func (d *DB) GetUserByToken(token string) (name, email string, err error) {
 	err = d.QueryRow(`SELECT user_name, user_email FROM tokens WHERE token = ?`, token).Scan(&name, &email)
 	return
+}
+
+// --- Sharing ---
+
+func (d *DB) ListProjectsWithVersionCountForUser(email string) ([]ProjectWithVersionCount, error) {
+	rows, err := d.Query(`
+		SELECT p.id, p.name, p.status, COUNT(v.id) AS version_count, p.updated_at
+		FROM projects p
+		LEFT JOIN versions v ON v.project_id = p.id
+		WHERE p.owner_email IS NULL
+		   OR p.owner_email = ?
+		   OR EXISTS (SELECT 1 FROM project_members pm WHERE pm.project_id = p.id AND pm.user_email = ?)
+		GROUP BY p.id
+		ORDER BY p.updated_at DESC`, email, email)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var projects []ProjectWithVersionCount
+	for rows.Next() {
+		var p ProjectWithVersionCount
+		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &p.VersionCount, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		projects = append(projects, p)
+	}
+	return projects, rows.Err()
+}
+
+func (d *DB) CanAccessProject(projectID, email string) (bool, error) {
+	var count int
+	err := d.QueryRow(`
+		SELECT COUNT(*) FROM projects p
+		WHERE p.id = ?
+		  AND (p.owner_email IS NULL OR p.owner_email = ?
+		       OR EXISTS (SELECT 1 FROM project_members pm WHERE pm.project_id = p.id AND pm.user_email = ?))`,
+		projectID, email, email).Scan(&count)
+	return count > 0, err
+}
+
+func (d *DB) GetProjectOwner(projectID string) (string, error) {
+	var owner sql.NullString
+	err := d.QueryRow(`SELECT owner_email FROM projects WHERE id = ?`, projectID).Scan(&owner)
+	if err != nil {
+		return "", err
+	}
+	return owner.String, nil
+}
+
+func (d *DB) CreateInvite(projectID, createdBy string) (*ProjectInvite, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return nil, err
+	}
+	inv := &ProjectInvite{
+		ID:        uuid.NewString(),
+		ProjectID: projectID,
+		Token:     hex.EncodeToString(b),
+		CreatedBy: createdBy,
+	}
+	err := d.QueryRow(
+		`INSERT INTO project_invites (id, project_id, token, created_by) VALUES (?, ?, ?, ?) RETURNING created_at`,
+		inv.ID, inv.ProjectID, inv.Token, inv.CreatedBy,
+	).Scan(&inv.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return inv, nil
+}
+
+func (d *DB) GetInviteByToken(token string) (*ProjectInvite, error) {
+	inv := &ProjectInvite{}
+	err := d.QueryRow(
+		`SELECT id, project_id, token, created_by, created_at, expires_at FROM project_invites WHERE token = ?`, token,
+	).Scan(&inv.ID, &inv.ProjectID, &inv.Token, &inv.CreatedBy, &inv.CreatedAt, &inv.ExpiresAt)
+	if err != nil {
+		return nil, err
+	}
+	if inv.ExpiresAt != nil && inv.ExpiresAt.Before(time.Now()) {
+		return nil, sql.ErrNoRows
+	}
+	return inv, nil
+}
+
+func (d *DB) DeleteInvite(id string) error {
+	_, err := d.Exec(`DELETE FROM project_invites WHERE id = ?`, id)
+	return err
+}
+
+func (d *DB) AddMember(projectID, email string) error {
+	_, err := d.Exec(
+		`INSERT OR IGNORE INTO project_members (project_id, user_email) VALUES (?, ?)`,
+		projectID, email)
+	return err
+}
+
+func (d *DB) ListMembers(projectID string) ([]ProjectMember, error) {
+	rows, err := d.Query(
+		`SELECT project_id, user_email, added_at FROM project_members WHERE project_id = ? ORDER BY added_at`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var members []ProjectMember
+	for rows.Next() {
+		var m ProjectMember
+		if err := rows.Scan(&m.ProjectID, &m.UserEmail, &m.AddedAt); err != nil {
+			return nil, err
+		}
+		members = append(members, m)
+	}
+	return members, rows.Err()
+}
+
+func (d *DB) RemoveMember(projectID, email string) error {
+	_, err := d.Exec(`DELETE FROM project_members WHERE project_id = ? AND user_email = ?`, projectID, email)
+	return err
 }

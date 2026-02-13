@@ -17,7 +17,7 @@ func Run(database *db.DB, uploadsDir string) {
 	if err != nil || len(projects) > 0 {
 		return
 	}
-	p, err := database.CreateProject("Design Reviewer — Landing Page")
+	p, err := database.CreateProject("Design Reviewer — Landing Page", "")
 	if err != nil {
 		log.Printf("seed: create project: %v", err)
 		return
