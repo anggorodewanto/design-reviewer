@@ -7,18 +7,20 @@ document.addEventListener("DOMContentLoaded", function () {
     var frame = document.getElementById("design-frame");
     var tabs = document.getElementById("page-tabs");
 
-    // Auto-resize iframe and pin overlay to content height
+    // Auto-resize iframe and pin overlay to content dimensions
     function resizeFrame() {
         try {
             var doc = frame.contentDocument || frame.contentWindow.document;
             frame.style.height = "0";
             var h = doc.documentElement.scrollHeight + "px";
+            var w = doc.documentElement.scrollWidth + "px";
             frame.style.height = h;
             var overlay = document.getElementById("pin-overlay");
-            if (overlay) overlay.style.height = h;
+            if (overlay) { overlay.style.height = h; overlay.style.width = w; }
         } catch (e) {}
     }
     frame.addEventListener("load", resizeFrame);
+    window.addEventListener("resize", resizeFrame);
 
     // Fetch and render version list in sidebar
     fetch("/api/projects/" + projectID + "/versions")
