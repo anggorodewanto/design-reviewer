@@ -54,11 +54,11 @@ design-reviewer logout
 ### Auth
 - Google OAuth SSO (company Google Workspace)
 - User identified by Google email and display name
-- No roles — all users have equal permissions
+- No roles — all users with access have equal permissions (except sharing, which is owner-only)
 - Session stored as HTTP-only cookie
 
 ### Project List (Home Page)
-- Shows all design projects
+- Shows projects the user owns, is a member of, or that have no owner (system projects)
 - Each project shows: name, current status, version count, last updated, link to review
 - Status badges: **Draft** → **In Review** → **Approved** → **Handed Off**
 - Status is manually changed by any user
@@ -127,6 +127,7 @@ design-reviewer/
 |--------|------|-------------|
 | id | TEXT (UUID) | Primary key |
 | name | TEXT | Unique project name |
+| owner_email | TEXT | Nullable. Creator's email. NULL = visible to all. |
 | status | TEXT | draft / in_review / approved / handed_off |
 | created_at | DATETIME | |
 | updated_at | DATETIME | |
@@ -164,6 +165,23 @@ design-reviewer/
 | body | TEXT | |
 | created_at | DATETIME | |
 
+### project_invites
+| Column | Type | Description |
+|--------|------|-------------|
+| id | TEXT (UUID) | Primary key |
+| project_id | TEXT | FK → projects |
+| token | TEXT | Unique random invite token |
+| created_by | TEXT | Email of user who created the invite |
+| created_at | DATETIME | |
+| expires_at | DATETIME | Nullable. NULL = never expires |
+
+### project_members
+| Column | Type | Description |
+|--------|------|-------------|
+| project_id | TEXT | FK → projects, composite PK |
+| user_email | TEXT | Composite PK |
+| added_at | DATETIME | |
+
 ---
 
 ## API Endpoints
@@ -182,6 +200,13 @@ design-reviewer/
 - `POST /api/comments/:id/replies` — add reply
 - `PATCH /api/comments/:id/resolve` — toggle resolve
 - `GET /designs/:version_id/*filepath` — serve uploaded static files
+
+### Sharing
+- `POST /api/projects/:id/invites` — generate invite link (owner only)
+- `DELETE /api/projects/:id/invites/:invite_id` — revoke invite (owner only)
+- `GET /api/projects/:id/members` — list members
+- `DELETE /api/projects/:id/members/:email` — remove member (owner only)
+- `GET /invite/:token` — accept invite (redirects to project after joining)
 
 ### Auth
 - `GET /auth/google/login` — redirect to Google OAuth
@@ -216,6 +241,79 @@ When a new version is pushed:
 - Viewport toggle (start with desktop only, add later)
 - Notifications (email/Slack when new comments)
 - CLI `list` command (nice-to-have, not critical for MVP)
+
+---
+
+## Project Sharing & Access Control
+
+### Ownership
+
+- Every project has an `owner_email` (nullable)
+- When a user creates a project (via CLI push or future web UI), their email is stored as owner
+- Projects with `NULL` owner are visible to all authenticated users (used for the seed "Design Reviewer — Landing Page" project)
+
+### Access Rules
+
+A user can access a project if **any** of these are true:
+1. The project has no owner (`owner_email IS NULL`) — system/seed projects
+2. The user is the owner (`owner_email = user's email`)
+3. The user is a member via invite (`project_members` row exists)
+
+Only the project owner can:
+- Generate/revoke invite links
+- Remove members
+- Change project status
+
+All users with access (owner + members) can:
+- View the design and all versions
+- Create comments and replies
+- Resolve/unresolve comments
+
+### Invite Links
+
+- Owner generates a shareable link: `{BASE_URL}/invite/{token}`
+- Token is a random 32-byte hex string
+- Links can optionally expire (`expires_at`)
+- Visiting the link while logged in adds the user to `project_members`
+- If not logged in, redirect to Google OAuth first, then process the invite
+- A project can have multiple active invite links
+
+### Data Model
+
+#### projects (modified)
+| Column | Type | Description |
+|--------|------|-------------|
+| owner_email | TEXT | Nullable. Email of the user who created the project. NULL = visible to all. |
+
+#### project_invites
+| Column | Type | Description |
+|--------|------|-------------|
+| id | TEXT (UUID) | Primary key |
+| project_id | TEXT | FK → projects |
+| token | TEXT | Unique random token for the invite URL |
+| created_by | TEXT | Email of user who created the invite |
+| created_at | DATETIME | |
+| expires_at | DATETIME | Nullable. NULL = never expires |
+
+#### project_members
+| Column | Type | Description |
+|--------|------|-------------|
+| project_id | TEXT | FK → projects |
+| user_email | TEXT | Email of the invited user |
+| added_at | DATETIME | |
+| PRIMARY KEY | | (project_id, user_email) |
+
+### API Endpoints
+
+- `POST /api/projects/:id/invites` — generate invite link (owner only)
+- `DELETE /api/projects/:id/invites/:invite_id` — revoke invite (owner only)
+- `GET /api/projects/:id/members` — list members (owner + members)
+- `DELETE /api/projects/:id/members/:email` — remove member (owner only)
+- `GET /invite/:token` — accept invite (any authenticated user)
+
+### Seed Project Behavior
+
+The "Design Reviewer — Landing Page" seed project is created with `owner_email = NULL`, making it visible to all users as a shared example. No ownership or invite logic applies to it.
 
 ---
 
