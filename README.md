@@ -2,6 +2,8 @@
 
 A collaborative tool for reviewing UI/UX design mockups. Designers push HTML+CSS mockups via CLI to a web app where teams can view designs and leave pin-point annotations.
 
+![Design Reviewer — Viewer with pin annotations and comments](docs/images/viewer-screenshot.png)
+
 ## Features
 
 - Push HTML/CSS design mockups from the command line
