@@ -53,8 +53,8 @@ my-design/
 - Do not use ` + "`" + `<a>` + "`" + ` links for page navigation — the reviewer handles it via tabs
 - ` + "`" + `index.html` + "`" + ` is loaded by default
 
-### Design for 1440px Width
-The viewer displays designs at desktop width (1440px) by default. Design accordingly.
+### Design for 1080px Width
+The viewer displays designs at desktop width (1080px) by default. Design accordingly.
 
 ### CSS Features That Work
 - CSS Grid and Flexbox
