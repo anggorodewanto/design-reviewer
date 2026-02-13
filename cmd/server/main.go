@@ -13,6 +13,7 @@ import (
 	"github.com/ab/design-reviewer/internal/api"
 	"github.com/ab/design-reviewer/internal/auth"
 	"github.com/ab/design-reviewer/internal/db"
+	"github.com/ab/design-reviewer/internal/seed"
 	"github.com/ab/design-reviewer/internal/storage"
 )
 
@@ -33,6 +34,8 @@ func main() {
 	defer database.Close()
 
 	store := storage.New(*uploads)
+
+	seed.Run(database, *uploads)
 
 	h := &api.Handler{DB: database, Storage: store, TemplatesDir: "web/templates", StaticDir: "web/static"}
 

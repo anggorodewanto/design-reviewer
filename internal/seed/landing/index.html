@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Design Reviewer — Collaborative Design Feedback</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="nav">
+    <div class="container nav-inner">
+      <div class="logo">◈ Design Reviewer</div>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#how-it-works">How It Works</a>
+        <a href="#cli">CLI</a>
+        <a href="#get-started" class="btn btn-sm">Get Started</a>
+      </div>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <div class="container">
+      <div class="badge">Open Source Design Review Tool</div>
+      <h1>Design feedback,<br><span class="gradient-text">pinned to the pixel.</span></h1>
+      <p class="hero-sub">Push HTML/CSS mockups from your terminal. Review them in the browser. Drop comments exactly where they matter.</p>
+      <div class="hero-actions">
+        <a href="#get-started" class="btn btn-primary">Quick Start →</a>
+        <a href="https://github.com/ab/design-reviewer" class="btn btn-outline">View on GitHub</a>
+      </div>
+      <div class="hero-visual">
+        <div class="window">
+          <div class="window-bar"><span></span><span></span><span></span></div>
+          <div class="window-body">
+            <div class="mock-design">
+              <div class="mock-header"></div>
+              <div class="mock-columns">
+                <div class="mock-col"></div>
+                <div class="mock-col"></div>
+                <div class="mock-col"></div>
+              </div>
+              <div class="mock-block"></div>
+              <div class="pin pin-1">
+                <div class="pin-dot"></div>
+                <div class="pin-label">"Move this 8px left" — Sarah</div>
+              </div>
+              <div class="pin pin-2">
+                <div class="pin-dot"></div>
+                <div class="pin-label">"Love this layout!" — Jake</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features" class="features">
+    <div class="container">
+      <div class="section-label">Features</div>
+      <h2>Everything your design review needs.</h2>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <div class="feature-icon">⬆</div>
+          <h3>Push from Terminal</h3>
+          <p>One command to upload your HTML/CSS mockup. No drag-and-drop, no browser uploads. Just <code>push</code>.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">📌</div>
+          <h3>Pin-Point Annotations</h3>
+          <p>Click anywhere on the design to leave a comment. Feedback is anchored to exact coordinates — no more "the thing on the left".</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔄</div>
+          <h3>Version History</h3>
+          <p>Every push creates a new version. Compare iterations side by side and track how the design evolves.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔒</div>
+          <h3>Google OAuth</h3>
+          <p>Secure sign-in with Google. Know who left every comment without managing passwords.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">📋</div>
+          <h3>Status Workflow</h3>
+          <p>Move designs through Draft → In Review → Approved. Keep everyone aligned on what's ready.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">⚡</div>
+          <h3>Lightweight Stack</h3>
+          <p>Go + SQLite. Single binary, no external dependencies. Deploy anywhere in seconds.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="how-it-works" class="how-it-works">
+    <div class="container">
+      <div class="section-label">How It Works</div>
+      <h2>Three steps. That's it.</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">01</div>
+          <h3>Build your mockup</h3>
+          <p>Create your design as HTML + CSS. Use any framework or plain markup — if a browser can render it, Design Reviewer can display it.</p>
+        </div>
+        <div class="step">
+          <div class="step-num">02</div>
+          <h3>Push it</h3>
+          <div class="code-block">
+            <code>$ design-reviewer push ./mockup --name "Homepage v2"</code>
+          </div>
+          <p>Your files are uploaded and a new version is created automatically.</p>
+        </div>
+        <div class="step">
+          <div class="step-num">03</div>
+          <h3>Review together</h3>
+          <p>Open the browser, click on the design to drop comments. Teammates see feedback pinned to the exact spot. Resolve threads when done.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="cli" class="cli-section">
+    <div class="container">
+      <div class="section-label">CLI Reference</div>
+      <h2>Your terminal is the interface.</h2>
+      <div class="cli-grid">
+        <div class="cli-card">
+          <div class="code-block"><code>$ design-reviewer login --server URL</code></div>
+          <p>Authenticate via Google OAuth</p>
+        </div>
+        <div class="cli-card">
+          <div class="code-block"><code>$ design-reviewer push &lt;dir&gt; --name "Name"</code></div>
+          <p>Upload a design directory as a new version</p>
+        </div>
+        <div class="cli-card">
+          <div class="code-block"><code>$ design-reviewer init</code></div>
+          <p>Generate a DESIGN_GUIDELINES.md template</p>
+        </div>
+        <div class="cli-card">
+          <div class="code-block"><code>$ design-reviewer logout</code></div>
+          <p>Remove stored credentials</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="get-started" class="get-started">
+    <div class="container">
+      <div class="section-label">Get Started</div>
+      <h2>Up and running in 2 minutes.</h2>
+      <div class="start-steps">
+        <div class="code-block">
+          <code><span class="dim"># Clone and run</span>
+$ git clone https://github.com/ab/design-reviewer.git
+$ cd design-reviewer
+$ cp .env.template .env   <span class="dim"># add your Google OAuth creds</span>
+$ go run ./cmd/server
+
+<span class="dim"># Build the CLI and push your first design</span>
+$ go build -o design-reviewer ./cmd/cli
+$ ./design-reviewer login --server http://localhost:8080
+$ ./design-reviewer push ./my-mockup --name "First Design"</code>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="logo">◈ Design Reviewer</div>
+      <p>Open source under MIT License.</p>
+      <a href="https://github.com/ab/design-reviewer">GitHub →</a>
+    </div>
+  </footer>
+</body>
+</html>
