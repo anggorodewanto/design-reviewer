@@ -1,39 +1,146 @@
 # Design Reviewer
 
-Internal tool for reviewing UI/UX design mockups built as HTML+CSS. Designers push mockups via CLI to a collaborative web app where teams can view and annotate designs with pin comments.
+A collaborative tool for reviewing UI/UX design mockups. Designers push HTML+CSS mockups via CLI to a web app where teams can view designs and leave pin-point annotations.
+
+## Features
+
+- Push HTML/CSS design mockups from the command line
+- View rendered designs in the browser with version history
+- Pin comments on specific coordinates of a design
+- Google OAuth authentication
+- Status workflow for review tracking
+
+## Project Structure
+
+```
+├── cmd/
+│   ├── server/          # Web server entrypoint
+│   └── cli/             # CLI tool entrypoint
+├── internal/
+│   ├── api/             # HTTP handlers and middleware
+│   ├── auth/            # Google OAuth logic
+│   ├── cli/             # CLI commands (login, push, init)
+│   ├── db/              # SQLite database layer
+│   └── storage/         # File storage for uploads
+├── web/
+│   ├── templates/       # HTML templates
+│   └── static/          # CSS and JavaScript
+├── scripts/             # Deployment scripts
+├── docs/                # Specs and phase docs
+├── Dockerfile
+└── fly.toml
+```
 
 ## Prerequisites
 
-- Go 1.22+ with GCC (for SQLite CGO)
-- Google OAuth credentials (for authentication)
+- Go 1.22+ with GCC (CGO required for SQLite)
+- Google OAuth credentials (see Quick Start)
 
-## Environment Variables
+## Quick Start
 
-| Variable | Description |
-|----------|-------------|
-| `GOOGLE_CLIENT_ID` | Google OAuth client ID |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
-| `SESSION_SECRET` | Random 32+ character string for session encryption |
-| `BASE_URL` | Public URL of the server (e.g., `http://localhost:8080`) |
-
-## Local Development
+### 1. Clone and install dependencies
 
 ```bash
-# Start the server
-go run ./cmd/server --port 8080 --db ./data/design-reviewer.db --uploads ./data/uploads
-
-# Build the CLI
-go build -o design-reviewer ./cmd/cli
+git clone https://github.com/ab/design-reviewer.git
+cd design-reviewer
+go mod download
 ```
+
+### 2. Create Google OAuth credentials
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select an existing one
+3. Navigate to **APIs & Services → Credentials**
+4. Click **Create Credentials → OAuth client ID**
+5. If prompted, configure the OAuth consent screen first:
+   - Choose **External** user type
+   - Fill in the app name and your email
+   - Add scope: `openid`, `email`, `profile`
+   - Add your email as a test user
+6. Back in Credentials, click **Create Credentials → OAuth client ID**
+7. Select **Web application**
+8. Under **Authorized redirect URIs**, add: `http://localhost:8080/auth/google/callback`
+9. Click **Create** and note the **Client ID** and **Client Secret**
+
+### 3. Configure environment
+
+```bash
+cp .env.template .env
+```
+
+Edit `.env` with your values:
+
+```
+GOOGLE_CLIENT_ID=your-client-id
+GOOGLE_CLIENT_SECRET=your-client-secret
+SESSION_SECRET=generate-with-openssl-rand-base64-32
+BASE_URL=http://localhost:8080
+```
+
+Generate a session secret:
+
+```bash
+openssl rand -base64 32
+```
+
+### 4. Run the server
+
+```bash
+go run ./cmd/server --port 8080 --db ./data/design-reviewer.db --uploads ./data/uploads
+```
+
+Open http://localhost:8080 in your browser.
+
+### 5. Build and use the CLI
+
+```bash
+go build -o design-reviewer ./cmd/cli
+
+# Authenticate with the server
+./design-reviewer login --server http://localhost:8080
+
+# Push a design mockup
+./design-reviewer push ./my-mockup --name "Homepage Redesign" --server http://localhost:8080
+```
+
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `login --server URL` | Authenticate via Google OAuth |
+| `logout` | Remove stored credentials |
+| `push <dir> --name <name> --server URL` | Upload a design directory |
+| `init [dir]` | Generate a `DESIGN_GUIDELINES.md` template |
 
 ## Deployment (Fly.io)
 
-1. Install [flyctl](https://fly.io/docs/hands-on/install-flyctl/)
-2. Run `fly launch` for first-time setup
-3. Set secrets:
-   ```bash
-   fly secrets set GOOGLE_CLIENT_ID=your-client-id
-   fly secrets set GOOGLE_CLIENT_SECRET=your-client-secret
-   fly secrets set SESSION_SECRET=random-32-char-string
-   ```
-4. Deploy: `fly deploy` (or `bash scripts/deploy.sh` which also creates the volume)
+```bash
+# First-time setup
+fly launch
+
+# Set secrets
+fly secrets set GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... SESSION_SECRET=...
+
+# Deploy
+fly deploy
+```
+
+Update the Google OAuth redirect URI to match your Fly.io URL (e.g., `https://design-reviewer.fly.dev/auth/google/callback`).
+
+## Running Tests
+
+```bash
+go test ./...
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/my-feature`)
+3. Commit your changes (`git commit -am 'Add my feature'`)
+4. Push to the branch (`git push origin feature/my-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
