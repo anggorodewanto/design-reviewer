@@ -9,8 +9,11 @@
 <body>
     {{if .UserName}}
     <nav class="top-bar">
-        <span class="user-name">{{.UserName}}</span>
-        <a href="/auth/logout" class="logout-link">Logout</a>
+        <img src="/static/images/logo.svg" alt="Design Reviewer" class="top-bar-logo">
+        <div class="top-bar-right">
+            <span class="user-name">{{.UserName}}</span>
+            <a href="/auth/logout" class="logout-link">Logout</a>
+        </div>
     </nav>
     {{end}}
     {{template "content" .}}

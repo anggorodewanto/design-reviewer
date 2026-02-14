@@ -6,10 +6,20 @@ document.addEventListener("DOMContentLoaded", function () {
     var overlay = document.getElementById("pin-overlay");
     var frame = document.getElementById("design-frame");
     var panel = document.getElementById("comment-panel");
+    var panelBackdrop = document.getElementById("comment-panel-backdrop");
     var filterBtns = document.querySelectorAll(".filter-btn");
     var comments = [];
     var currentFilter = "all";
     var currentPage = "";
+    var savedPanelPosition = null;
+
+    // Close panel when clicking on backdrop
+    panelBackdrop.addEventListener("click", function(e) {
+        if (e.target === panelBackdrop) {
+            panelBackdrop.classList.remove("open");
+            savedPanelPosition = null;
+        }
+    });
 
     // Determine current page from iframe src
     function getCurrentPage() {
@@ -50,7 +60,7 @@ document.addEventListener("DOMContentLoaded", function () {
             pin.dataset.index = i;
             pin.addEventListener("click", function (e) {
                 e.stopPropagation();
-                openPanel(c);
+                openPanel(c, pin);
             });
             overlay.appendChild(pin);
         });
@@ -73,8 +83,16 @@ document.addEventListener("DOMContentLoaded", function () {
             '<textarea class="comment-input" placeholder="Add a comment..." id="nc-body" rows="3"></textarea>' +
             '<button class="btn-submit" id="nc-submit">Post</button>' +
             '</div>';
-        panel.classList.add("open");
-        panel.querySelector(".panel-close").onclick = function () { panel.classList.remove("open"); };
+        panelBackdrop.classList.add("open");
+        // Auto-focus the comment input
+        setTimeout(function() {
+            var textarea = document.getElementById("nc-body");
+            if (textarea) textarea.focus();
+        }, 100);
+        panel.querySelector(".panel-close").onclick = function () {
+            panelBackdrop.classList.remove("open");
+            savedPanelPosition = null;
+        };
         document.getElementById("nc-submit").addEventListener("click", function () {
             var nameEl = document.getElementById("nc-name");
             var name = window.authUser ? window.authUser.name : (nameEl ? nameEl.value.trim() : "Anonymous");
@@ -92,35 +110,73 @@ document.addEventListener("DOMContentLoaded", function () {
                     body: body
                 })
             }).then(function () {
-                panel.classList.remove("open");
+                panelBackdrop.classList.remove("open");
                 loadComments();
             });
         });
     }
 
     // Open comment panel for existing pin
-    function openPanel(c) {
-        var html =
-            '<div class="panel-header"><span>Comment</span><button class="panel-close">&times;</button></div>' +
-            '<div class="panel-body">' +
-            '<div class="comment-item"><strong>' + esc(c.author_name) + '</strong> <span class="comment-time">' + fmtTime(c.created_at) + '</span>' +
-            '<p>' + esc(c.body) + '</p></div>';
+    function openPanel(c, sourceElement) {
+        var resolveBtn = c.resolved
+            ? '<button class="btn-resolve-header" id="rp-resolve"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"></path></svg>Unresolve</button>'
+            : '<button class="btn-resolve-header" id="rp-resolve"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"></path></svg>Resolve</button>';
+
+        var commentsHtml = '<div class="comment-item"><strong class="comment-author">' + esc(c.author_name) + '</strong> <span class="comment-time">' + fmtTime(c.created_at) + '</span>' +
+            '<p class="comment-body">' + esc(c.body) + '</p></div>';
         if (c.replies) {
             c.replies.forEach(function (r) {
-                html += '<div class="reply-item"><strong>' + esc(r.author_name) + '</strong> <span class="comment-time">' + fmtTime(r.created_at) + '</span>' +
-                    '<p>' + esc(r.body) + '</p></div>';
+                commentsHtml += '<div class="reply-item"><strong class="comment-author">' + esc(r.author_name) + '</strong> <span class="comment-time">' + fmtTime(r.created_at) + '</span>' +
+                    '<p class="comment-body">' + esc(r.body) + '</p></div>';
             });
         }
-        html += '<div class="reply-form">' +
+
+        var html =
+            '<div class="panel-header"><span>Comment</span><div class="panel-actions">' + resolveBtn + '<button class="panel-close">&times;</button></div></div>' +
+            '<div class="panel-body">' +
+            '<div class="comments-scroll">' + commentsHtml + '</div>' +
+            '<div class="reply-form">' +
             (window.authUser ? '' : '<input class="comment-input" placeholder="Your name" id="rp-name">') +
             '<textarea class="comment-input" placeholder="Reply..." id="rp-body" rows="2"></textarea>' +
             '<button class="btn-submit" id="rp-submit">Reply</button>' +
-            '</div>' +
-            '<button class="btn-resolve" id="rp-resolve">' + (c.resolved ? "Unresolve" : "Resolve") + '</button>' +
-            '</div>';
+            '</div></div>';
         panel.innerHTML = html;
-        panel.classList.add("open");
-        panel.querySelector(".panel-close").onclick = function () { panel.classList.remove("open"); };
+
+        // Position the panel next to the source element or use saved position
+        if (savedPanelPosition) {
+            panel.style.left = savedPanelPosition.left + 'px';
+            panel.style.top = savedPanelPosition.top + 'px';
+        } else if (sourceElement) {
+            var rect = sourceElement.getBoundingClientRect();
+            var panelWidth = 360;
+            var panelHeight = 800; // max-height
+            var spacing = 12;
+
+            // Calculate position (prefer right side, fallback to left)
+            var left = rect.right + spacing;
+            if (left + panelWidth > window.innerWidth - 20) {
+                left = rect.left - panelWidth - spacing;
+            }
+
+            // Vertical positioning (align with top of element, but keep in viewport)
+            var top = rect.top;
+            if (top + panelHeight > window.innerHeight - 20) {
+                top = window.innerHeight - panelHeight - 20;
+            }
+            if (top < 20) top = 20;
+
+            panel.style.left = left + 'px';
+            panel.style.top = top + 'px';
+
+            // Save the position for future use
+            savedPanelPosition = { left: left, top: top };
+        }
+
+        panelBackdrop.classList.add("open");
+        panel.querySelector(".panel-close").onclick = function () {
+            panelBackdrop.classList.remove("open");
+            savedPanelPosition = null;
+        };
         document.getElementById("rp-submit").addEventListener("click", function () {
             var nameEl = document.getElementById("rp-name");
             var name = window.authUser ? window.authUser.name : (nameEl ? nameEl.value.trim() : "Anonymous");
@@ -134,7 +190,11 @@ document.addEventListener("DOMContentLoaded", function () {
         });
         document.getElementById("rp-resolve").addEventListener("click", function () {
             fetch("/api/comments/" + c.id + "/resolve", { method: "PATCH" })
-                .then(function () { loadComments(); panel.classList.remove("open"); });
+                .then(function () {
+                    loadComments();
+                    panelBackdrop.classList.remove("open");
+                    savedPanelPosition = null;
+                });
         });
     }
 
@@ -188,9 +248,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 '<div class="cs-meta"><span>' + fmtTime(c.created_at) + '</span>' +
                 (c.replies && c.replies.length ? '<span>' + c.replies.length + ' repl' + (c.replies.length === 1 ? 'y' : 'ies') + '</span>' : '') +
                 '</div>';
-            item.addEventListener("click", function () {
+            item.addEventListener("click", function (e) {
                 scrollToPin(c);
-                openPanel(c);
+                openPanel(c, item);
             });
             csList.appendChild(item);
         });
@@ -255,7 +315,7 @@ document.addEventListener("DOMContentLoaded", function () {
     window.reloadComments = function (newVersionID) {
         versionID = newVersionID;
         currentPage = getCurrentPage();
-        panel.classList.remove("open");
+        panelBackdrop.classList.remove("open");
         loadComments();
     };
 

@@ -9,6 +9,16 @@
             <option value="approved"{{if eq .Status "approved"}} selected{{end}}>Approved</option>
             <option value="handed_off"{{if eq .Status "handed_off"}} selected{{end}}>Handed Off</option>
         </select>
+        <div class="viewport-switcher">
+            <button class="viewport-btn active" data-width="1080">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M208,40H48A24,24,0,0,0,24,64V176a24,24,0,0,0,24,24h72v16H96a8,8,0,0,0,0,16h64a8,8,0,0,0,0-16H136V200h72a24,24,0,0,0,24-24V64A24,24,0,0,0,208,40ZM192,176H64V64H192Z"></path></svg>
+                Desktop
+            </button>
+            <button class="viewport-btn" data-width="375">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M176,16H80A24,24,0,0,0,56,40V216a24,24,0,0,0,24,24h96a24,24,0,0,0,24-24V40A24,24,0,0,0,176,16ZM80,56h96V200H80Z"></path></svg>
+                Mobile
+            </button>
+        </div>
         {{if .IsOwner}}<button id="share-btn" class="btn-share" title="Share project">Share</button>{{end}}
     </header>
     <div class="viewer-body">
@@ -27,33 +37,37 @@
             </div>
             {{end}}
             <div class="annotation-filter">
-                <button class="filter-btn active" data-filter="all">All</button>
-                <button class="filter-btn" data-filter="open">Open</button>
-                <button class="filter-btn" data-filter="resolved">Resolved</button>
-                <span class="filter-sep"></span>
-                <button class="viewport-btn active" data-width="1080">Desktop</button>
-                <button class="viewport-btn" data-width="375">Mobile</button>
-                <button id="toggle-comments-sidebar" class="btn-comments-toggle" title="Toggle comments list">💬</button>
             </div>
             <div class="iframe-wrapper">
-                <div id="pin-overlay"></div>
-                <iframe
-                    id="design-frame"
-                    class="viewer-iframe"
-                    src="/designs/{{.VersionID}}/{{.DefaultPage}}"
-                    sandbox="allow-same-origin"
-                ></iframe>
+                <div class="design-container">
+                    <div class="design-frame">
+                        <div id="pin-overlay"></div>
+                        <iframe
+                            id="design-frame"
+                            class="viewer-iframe"
+                            src="/designs/{{.VersionID}}/{{.DefaultPage}}"
+                            sandbox="allow-same-origin"
+                        ></iframe>
+                    </div>
+                </div>
             </div>
         </main>
-        <aside id="comments-sidebar" class="comments-sidebar">
+        <aside id="comments-sidebar" class="comments-sidebar open">
             <div class="sidebar-section">
                 <h3>Comments</h3>
+                <div class="comment-filters">
+                    <button class="filter-btn active" data-filter="all">All</button>
+                    <button class="filter-btn" data-filter="open">Open</button>
+                    <button class="filter-btn" data-filter="resolved">Resolved</button>
+                </div>
             </div>
             <div id="comments-sidebar-list"></div>
         </aside>
     </div>
 </div>
-<div id="comment-panel"></div>
+<div id="comment-panel-backdrop" class="comment-panel-backdrop">
+    <div id="comment-panel"></div>
+</div>
 <div id="share-dialog" style="display:none" class="share-dialog">
     <div class="share-dialog-content">
         <h3>Share Project</h3>
