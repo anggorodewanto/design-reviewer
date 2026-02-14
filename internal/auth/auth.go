@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -34,8 +35,9 @@ const userKey contextKey = "user"
 
 // User represents an authenticated user.
 type User struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
+	Name      string `json:"name"`
+	Email     string `json:"email"`
+	ExpiresAt int64  `json:"exp,omitempty"`
 }
 
 // NewGoogleOAuthConfig creates an oauth2.Config for Google.
@@ -83,6 +85,7 @@ func GenerateState() string {
 
 // SignSession creates a signed session cookie value from a User.
 func SignSession(secret string, u User) (string, error) {
+	u.ExpiresAt = time.Now().Add(24 * time.Hour).Unix()
 	data, err := json.Marshal(u)
 	if err != nil {
 		return "", err
@@ -114,6 +117,9 @@ func VerifySession(secret, cookie string) (User, error) {
 	if err := json.Unmarshal(data, &u); err != nil {
 		return User{}, err
 	}
+	if u.ExpiresAt == 0 || time.Now().Unix() > u.ExpiresAt {
+		return User{}, errors.New("session expired")
+	}
 	return u, nil
 }
 
@@ -121,6 +127,11 @@ func hmacSign(secret string, data []byte) []byte {
 	h := hmac.New(sha256.New, []byte(secret))
 	h.Write(data)
 	return h.Sum(nil)
+}
+
+// HmacSignExported is an exported wrapper for testing.
+func HmacSignExported(secret string, data []byte) []byte {
+	return hmacSign(secret, data)
 }
 
 // SetUserInContext adds user info to the context.
