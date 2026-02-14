@@ -2611,3 +2611,156 @@ func TestExpiredSessionAPI401(t *testing.T) {
 		t.Errorf("expected 401 for expired session on API, got %d", resp.StatusCode)
 	}
 }
+
+// --- Phase 24: Server-side Session Invalidation on Logout ---
+
+func TestLogoutInvalidatesServerSession(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	noRedirect := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	// Step 1: Login via OAuth callback to get a server-side session
+	loginResp, _ := noRedirect.Get(env.Server.URL + "/auth/google/login")
+	loginResp.Body.Close()
+	var stateCookie *http.Cookie
+	for _, c := range loginResp.Cookies() {
+		if c.Name == "oauth_state" {
+			stateCookie = c
+		}
+	}
+
+	callbackURL := env.Server.URL + "/auth/google/callback?code=test&state=" + stateCookie.Value
+	req, _ := http.NewRequest("GET", callbackURL, nil)
+	req.AddCookie(stateCookie)
+	cbResp, _ := noRedirect.Do(req)
+	cbResp.Body.Close()
+
+	var sessionCookie *http.Cookie
+	for _, c := range cbResp.Cookies() {
+		if c.Name == "session" {
+			sessionCookie = c
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatal("no session cookie after callback")
+	}
+
+	// Step 2: Verify session works for API access
+	req2, _ := http.NewRequest("GET", env.Server.URL+"/api/projects", nil)
+	req2.AddCookie(sessionCookie)
+	resp2, _ := (&http.Client{}).Do(req2)
+	resp2.Body.Close()
+	if resp2.StatusCode != 200 {
+		t.Fatalf("expected 200 with valid session, got %d", resp2.StatusCode)
+	}
+
+	// Step 3: Logout
+	req3, _ := http.NewRequest("GET", env.Server.URL+"/auth/logout", nil)
+	req3.AddCookie(sessionCookie)
+	logoutResp, _ := noRedirect.Do(req3)
+	logoutResp.Body.Close()
+
+	// Step 4: Reuse the old session cookie — should be rejected
+	req4, _ := http.NewRequest("GET", env.Server.URL+"/api/projects", nil)
+	req4.AddCookie(sessionCookie)
+	resp4, _ := (&http.Client{}).Do(req4)
+	resp4.Body.Close()
+	if resp4.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401 after logout, got %d", resp4.StatusCode)
+	}
+}
+
+func TestLogoutInvalidatesServerSessionWebRoute(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	noRedirect := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	// Login via OAuth callback
+	loginResp, _ := noRedirect.Get(env.Server.URL + "/auth/google/login")
+	loginResp.Body.Close()
+	var stateCookie *http.Cookie
+	for _, c := range loginResp.Cookies() {
+		if c.Name == "oauth_state" {
+			stateCookie = c
+		}
+	}
+
+	callbackURL := env.Server.URL + "/auth/google/callback?code=test&state=" + stateCookie.Value
+	req, _ := http.NewRequest("GET", callbackURL, nil)
+	req.AddCookie(stateCookie)
+	cbResp, _ := noRedirect.Do(req)
+	cbResp.Body.Close()
+
+	var sessionCookie *http.Cookie
+	for _, c := range cbResp.Cookies() {
+		if c.Name == "session" {
+			sessionCookie = c
+		}
+	}
+
+	// Logout
+	req2, _ := http.NewRequest("GET", env.Server.URL+"/auth/logout", nil)
+	req2.AddCookie(sessionCookie)
+	logoutResp, _ := noRedirect.Do(req2)
+	logoutResp.Body.Close()
+
+	// Reuse old session cookie on web route — should redirect to login
+	req3, _ := http.NewRequest("GET", env.Server.URL+"/", nil)
+	req3.AddCookie(sessionCookie)
+	resp3, _ := noRedirect.Do(req3)
+	resp3.Body.Close()
+	if resp3.StatusCode != http.StatusFound {
+		t.Errorf("expected 302 redirect to login after logout, got %d", resp3.StatusCode)
+	}
+}
+
+func TestOAuthCallbackCreatesServerSession(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	noRedirect := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	// Login via OAuth callback
+	loginResp, _ := noRedirect.Get(env.Server.URL + "/auth/google/login")
+	loginResp.Body.Close()
+	var stateCookie *http.Cookie
+	for _, c := range loginResp.Cookies() {
+		if c.Name == "oauth_state" {
+			stateCookie = c
+		}
+	}
+
+	callbackURL := env.Server.URL + "/auth/google/callback?code=test&state=" + stateCookie.Value
+	req, _ := http.NewRequest("GET", callbackURL, nil)
+	req.AddCookie(stateCookie)
+	cbResp, _ := noRedirect.Do(req)
+	cbResp.Body.Close()
+
+	var sessionCookie *http.Cookie
+	for _, c := range cbResp.Cookies() {
+		if c.Name == "session" {
+			sessionCookie = c
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatal("no session cookie")
+	}
+
+	// Verify the session cookie contains a session ID and it exists in DB
+	u, err := authpkg.VerifySession("integration-test-secret", sessionCookie.Value)
+	if err != nil {
+		t.Fatalf("invalid session: %v", err)
+	}
+	if u.SessionID == "" {
+		t.Error("session cookie missing SessionID")
+	}
+	name, email, err := env.DB.GetSession(u.SessionID)
+	if err != nil {
+		t.Fatalf("session not in DB: %v", err)
+	}
+	if name != "IntegrationUser" || email != "integration@test.com" {
+		t.Errorf("session DB data: name=%q email=%q", name, email)
+	}
+}
