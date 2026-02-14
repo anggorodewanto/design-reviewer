@@ -244,6 +244,57 @@ func TestRegisterRoutes(t *testing.T) {
 	}
 }
 
+func TestHandleUploadTooLarge(t *testing.T) {
+	h := setupTestHandler(t)
+
+	// Build a body that exceeds 50MB
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	mw.WriteField("name", "big-proj")
+	fw, _ := mw.CreateFormFile("file", "upload.zip")
+	chunk := bytes.Repeat([]byte("x"), 1<<20) // 1MB
+	for i := 0; i < 51; i++ {
+		fw.Write(chunk)
+	}
+	mw.Close()
+
+	req := httptest.NewRequest("POST", "/api/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	h.handleUpload(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleUploadJustUnderLimit(t *testing.T) {
+	h := setupTestHandler(t)
+
+	// A small valid upload should still work fine
+	var zipBuf bytes.Buffer
+	zw := zip.NewWriter(&zipBuf)
+	f, _ := zw.Create("index.html")
+	f.Write([]byte("<h1>small</h1>"))
+	zw.Close()
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	mw.WriteField("name", "small-proj")
+	fw, _ := mw.CreateFormFile("file", "upload.zip")
+	fw.Write(zipBuf.Bytes())
+	mw.Close()
+
+	req := httptest.NewRequest("POST", "/api/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	h.handleUpload(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 // --- DB error path tests for upload ---
 
 func TestHandleUploadCreateProjectDBError(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,8 +13,15 @@ import (
 )
 
 func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 50<<20) // 50 MB
+
 	file, _, err := r.FormFile("file")
 	if err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			http.Error(w, "upload exceeds 50MB limit", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "missing file field", http.StatusBadRequest)
 		return
 	}

@@ -2073,3 +2073,37 @@ func TestSharingJSUsesEscHelper(t *testing.T) {
 		t.Error("sharing.js does not wrap m.email with esc()")
 	}
 }
+
+// --- Phase 14: Upload Size Limit ---
+
+func TestUploadExceedingSizeLimitReturns413(t *testing.T) {
+	env := setup(t)
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	mw.WriteField("name", "huge-proj")
+	fw, _ := mw.CreateFormFile("file", "upload.zip")
+	chunk := bytes.Repeat([]byte("x"), 1<<20) // 1MB
+	for i := 0; i < 51; i++ {
+		fw.Write(chunk)
+	}
+	mw.Close()
+
+	resp, err := http.Post(env.Server.URL+"/api/upload", mw.FormDataContentType(), &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413, got %d", resp.StatusCode)
+	}
+}
+
+func TestUploadUnderLimitStillWorks(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "<h1>ok</h1>"})
+	res := uploadZip(t, env.Server.URL, "normal-proj", z)
+	if res["version_num"].(float64) != 1 {
+		t.Errorf("expected version_num=1, got %v", res["version_num"])
+	}
+}
