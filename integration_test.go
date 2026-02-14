@@ -2138,3 +2138,48 @@ func TestCLILoginAcceptsValidPort(t *testing.T) {
 		t.Errorf("expected 302, got %d", resp.StatusCode)
 	}
 }
+
+// --- Phase 16: Secure Session Cookie ---
+
+func TestOAuthCallbackSessionCookieNotSecureOverHTTP(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	// First, initiate login to get a state cookie
+	resp, err := client.Get(env.Server.URL + "/auth/google/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	var stateCookie *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == "oauth_state" {
+			stateCookie = c
+		}
+	}
+	if stateCookie == nil {
+		t.Fatal("no oauth_state cookie")
+	}
+
+	// Call callback with the state
+	req, _ := http.NewRequest("GET", env.Server.URL+"/auth/google/callback?code=testcode&state="+stateCookie.Value, nil)
+	req.AddCookie(stateCookie)
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	for _, c := range resp.Cookies() {
+		if c.Name == "session" {
+			if c.Secure {
+				t.Error("expected Secure=false for HTTP base URL in integration test")
+			}
+			return
+		}
+	}
+	t.Error("session cookie not set in callback response")
+}

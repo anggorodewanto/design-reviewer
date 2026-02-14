@@ -92,7 +92,7 @@ func TestContextHelpers(t *testing.T) {
 func TestSetSessionCookie(t *testing.T) {
 	w := httptest.NewRecorder()
 	u := User{Name: "Alice", Email: "alice@test.com"}
-	if err := SetSessionCookie(w, "secret", u); err != nil {
+	if err := SetSessionCookie(w, "secret", u, false); err != nil {
 		t.Fatal(err)
 	}
 	cookies := w.Result().Cookies()
@@ -157,7 +157,7 @@ func TestNewGoogleOAuthConfig(t *testing.T) {
 func TestSetSessionCookieOnRealRequest(t *testing.T) {
 	// Test that the cookie works in a real HTTP flow
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		SetSessionCookie(w, "secret", User{Name: "Test", Email: "test@test.com"})
+		SetSessionCookie(w, "secret", User{Name: "Test", Email: "test@test.com"}, false)
 		w.WriteHeader(200)
 	})
 	srv := httptest.NewServer(handler)
@@ -211,9 +211,35 @@ func TestVerifySessionBadSigBase64(t *testing.T) {
 func TestSetSessionCookieError(t *testing.T) {
 	// SetSessionCookie should succeed with valid input
 	w := httptest.NewRecorder()
-	err := SetSessionCookie(w, "secret", User{Name: "A", Email: "a@t.com"})
+	err := SetSessionCookie(w, "secret", User{Name: "A", Email: "a@t.com"}, false)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// --- Phase 16: Secure Session Cookie ---
+
+func TestSetSessionCookieSecureFlag(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		secure bool
+	}{
+		{"secure true", true},
+		{"secure false", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			SetSessionCookie(w, "secret", User{Name: "A", Email: "a@t.com"}, tc.secure)
+			for _, c := range w.Result().Cookies() {
+				if c.Name == "session" {
+					if c.Secure != tc.secure {
+						t.Errorf("Secure = %v, want %v", c.Secure, tc.secure)
+					}
+					return
+				}
+			}
+			t.Error("session cookie not found")
+		})
 	}
 }
 

@@ -100,7 +100,8 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := auth.SetSessionCookie(w, h.Auth.SessionSecret, auth.User{Name: name, Email: email}); err != nil {
+	secure := strings.HasPrefix(h.Auth.BaseURL, "https://")
+	if err := auth.SetSessionCookie(w, h.Auth.SessionSecret, auth.User{Name: name, Email: email}, secure); err != nil {
 		http.Error(w, "session error", http.StatusInternalServerError)
 		return
 	}

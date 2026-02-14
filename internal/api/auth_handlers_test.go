@@ -579,6 +579,50 @@ func TestHandleLoginPageTemplateMissing(t *testing.T) {
 	}
 }
 
+// --- Phase 16: Secure Session Cookie ---
+
+func TestHandleGoogleCallbackSecureCookieForHTTPS(t *testing.T) {
+	h := setupAuthHandler(t)
+	h.Auth.BaseURL = "https://example.com"
+	state := "test-state"
+
+	req := httptest.NewRequest("GET", "/auth/google/callback?code=authcode&state="+state, nil)
+	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: state})
+	w := httptest.NewRecorder()
+	h.handleGoogleCallback(w, req)
+
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "session" {
+			if !c.Secure {
+				t.Error("expected Secure=true for HTTPS base URL")
+			}
+			return
+		}
+	}
+	t.Error("session cookie not set")
+}
+
+func TestHandleGoogleCallbackNoSecureCookieForHTTP(t *testing.T) {
+	h := setupAuthHandler(t)
+	// BaseURL is already http://localhost:8080 from setupAuthHandler
+	state := "test-state"
+
+	req := httptest.NewRequest("GET", "/auth/google/callback?code=authcode&state="+state, nil)
+	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: state})
+	w := httptest.NewRecorder()
+	h.handleGoogleCallback(w, req)
+
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "session" {
+			if c.Secure {
+				t.Error("expected Secure=false for HTTP base URL")
+			}
+			return
+		}
+	}
+	t.Error("session cookie not set")
+}
+
 func TestHandleGoogleCallbackCLIFlowCreateTokenError(t *testing.T) {
 	h := setupAuthHandler(t)
 	m := &mockDB{DataStore: h.DB, createTokenErr: errDB}

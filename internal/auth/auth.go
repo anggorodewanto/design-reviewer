@@ -138,7 +138,7 @@ func GetUserFromContext(ctx context.Context) (name, email string) {
 }
 
 // SetSessionCookie sets the signed session cookie on the response.
-func SetSessionCookie(w http.ResponseWriter, secret string, u User) error {
+func SetSessionCookie(w http.ResponseWriter, secret string, u User, secure bool) error {
 	val, err := SignSession(secret, u)
 	if err != nil {
 		return err
@@ -148,6 +148,7 @@ func SetSessionCookie(w http.ResponseWriter, secret string, u User) error {
 		Value:    val,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 	return nil
