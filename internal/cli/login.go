@@ -41,10 +41,11 @@ func Login(serverURL string) error {
 		tokenCh <- token
 	})
 
-	listener, err := net.Listen("tcp", "localhost:9876")
+	listener, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
 		return fmt.Errorf("failed to start local server: %w", err)
 	}
+	port := listener.Addr().(*net.TCPAddr).Port
 
 	srv := &http.Server{Handler: mux}
 	go func() {
@@ -53,7 +54,7 @@ func Login(serverURL string) error {
 		}
 	}()
 
-	url := fmt.Sprintf("%s/auth/google/cli-login?port=9876", serverURL)
+	url := fmt.Sprintf("%s/auth/google/cli-login?port=%d", serverURL, port)
 	fmt.Printf("Open this URL in your browser:\n%s\n", url)
 	openBrowser(url)
 
