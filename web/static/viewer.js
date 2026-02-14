@@ -35,7 +35,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 try { var el = doc.elementFromPoint(e.clientX - iframeRect.left, e.clientY - iframeRect.top); } catch(ex) { return; }
                 var link = el && el.closest("[data-dr-link]");
                 if (link) {
-                    tooltip.textContent = "Ctrl+Click → " + link.getAttribute("data-dr-link");
+                    tooltip.textContent = (navigator.platform.indexOf("Mac") > -1 ? "⌘" : "Ctrl") + "+Click → " + link.getAttribute("data-dr-link");
                     tooltip.style.left = (e.clientX - overlay.getBoundingClientRect().left + 16) + "px";
                     tooltip.style.top = (e.clientY - overlay.getBoundingClientRect().top - 10) + "px";
                     tooltip.style.display = "block";
