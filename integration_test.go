@@ -2936,3 +2936,80 @@ func TestSecurityHeadersOnAllResponses(t *testing.T) {
 		}
 	}
 }
+
+// --- Phase 28: Rate Limiting ---
+
+func TestRateLimitReturns429OnExcessRequests(t *testing.T) {
+	tmp := t.TempDir()
+	database, err := db.New(filepath.Join(tmp, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := storage.New(filepath.Join(tmp, "uploads"))
+	h := &api.Handler{DB: database, Storage: store, TemplatesDir: "web/templates", StaticDir: "web/static"}
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rl := api.NewRateLimiter()
+	srv := httptest.NewServer(rl.Middleware(mux))
+	t.Cleanup(func() { srv.Close(); database.Close() })
+
+	// Exhaust general burst (10 requests)
+	for i := 0; i < 10; i++ {
+		resp, err := http.Get(srv.URL + "/api/projects")
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+	}
+
+	// 11th request should be rate limited
+	resp, err := http.Get(srv.URL + "/api/projects")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("expected 429, got %d", resp.StatusCode)
+	}
+	var body map[string]string
+	json.NewDecoder(resp.Body).Decode(&body)
+	if body["error"] != "rate limit exceeded" {
+		t.Errorf("error = %q, want %q", body["error"], "rate limit exceeded")
+	}
+}
+
+func TestRateLimitStrictEndpointsLowerBurst(t *testing.T) {
+	tmp := t.TempDir()
+	database, err := db.New(filepath.Join(tmp, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := storage.New(filepath.Join(tmp, "uploads"))
+	h := &api.Handler{DB: database, Storage: store, TemplatesDir: "web/templates", StaticDir: "web/static"}
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rl := api.NewRateLimiter()
+	srv := httptest.NewServer(rl.Middleware(mux))
+	t.Cleanup(func() { srv.Close(); database.Close() })
+
+	// Exhaust strict burst (5 requests) on auth endpoint
+	for i := 0; i < 5; i++ {
+		resp, err := http.Get(srv.URL + "/auth/google/login")
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+	}
+
+	// 6th request should be rate limited
+	resp, err := http.Get(srv.URL + "/auth/google/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("expected 429 on strict endpoint, got %d", resp.StatusCode)
+	}
+}
