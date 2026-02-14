@@ -909,6 +909,83 @@ func TestAPIMiddlewareAcceptsValidServerSession(t *testing.T) {
 	}
 }
 
+// --- Phase 33: OAuth State Cookie Secure Flag ---
+
+func TestGoogleLoginOAuthStateCookieSecureHTTPS(t *testing.T) {
+	h := setupAuthHandler(t)
+	h.Auth.BaseURL = "https://example.com"
+
+	req := httptest.NewRequest("GET", "/auth/google/login", nil)
+	w := httptest.NewRecorder()
+	h.handleGoogleLogin(w, req)
+
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "oauth_state" {
+			if !c.Secure {
+				t.Error("expected Secure=true for HTTPS base URL")
+			}
+			return
+		}
+	}
+	t.Error("oauth_state cookie not set")
+}
+
+func TestGoogleLoginOAuthStateCookieNotSecureHTTP(t *testing.T) {
+	h := setupAuthHandler(t)
+	// BaseURL is http://localhost:8080 from setupAuthHandler
+
+	req := httptest.NewRequest("GET", "/auth/google/login", nil)
+	w := httptest.NewRecorder()
+	h.handleGoogleLogin(w, req)
+
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "oauth_state" {
+			if c.Secure {
+				t.Error("expected Secure=false for HTTP base URL")
+			}
+			return
+		}
+	}
+	t.Error("oauth_state cookie not set")
+}
+
+func TestCLILoginOAuthStateCookieSecureHTTPS(t *testing.T) {
+	h := setupAuthHandler(t)
+	h.Auth.BaseURL = "https://example.com"
+
+	req := httptest.NewRequest("GET", "/auth/google/cli-login?port=9876", nil)
+	w := httptest.NewRecorder()
+	h.handleCLILogin(w, req)
+
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "oauth_state" {
+			if !c.Secure {
+				t.Error("expected Secure=true for HTTPS base URL")
+			}
+			return
+		}
+	}
+	t.Error("oauth_state cookie not set")
+}
+
+func TestCLILoginOAuthStateCookieNotSecureHTTP(t *testing.T) {
+	h := setupAuthHandler(t)
+
+	req := httptest.NewRequest("GET", "/auth/google/cli-login?port=9876", nil)
+	w := httptest.NewRecorder()
+	h.handleCLILogin(w, req)
+
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "oauth_state" {
+			if c.Secure {
+				t.Error("expected Secure=false for HTTP base URL")
+			}
+			return
+		}
+	}
+	t.Error("oauth_state cookie not set")
+}
+
 // --- Phase 29: Request Body Size Limits ---
 
 func TestTokenExchangeOversizedBody(t *testing.T) {

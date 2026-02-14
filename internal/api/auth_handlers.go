@@ -57,6 +57,7 @@ func (h *Handler) handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
 		Value:    state,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   strings.HasPrefix(h.Auth.BaseURL, "https://"),
 		SameSite: http.SameSiteLaxMode,
 	})
 	url := h.OAuthConfig.AuthCodeURL(state)
@@ -135,6 +136,7 @@ func (h *Handler) handleCLILogin(w http.ResponseWriter, r *http.Request) {
 		Value:    state,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   strings.HasPrefix(h.Auth.BaseURL, "https://"),
 		SameSite: http.SameSiteLaxMode,
 	})
 	url := h.OAuthConfig.AuthCodeURL(state)

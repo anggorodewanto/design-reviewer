@@ -3259,3 +3259,52 @@ func TestCLILoginDynamicPortCallbackRedirect(t *testing.T) {
 		t.Errorf("expected redirect to port 55555, got %s", loc)
 	}
 }
+
+// --- Phase 33: OAuth State Cookie Secure Flag ---
+
+func TestWebLoginOAuthStateCookieSecureFlag(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	resp, err := client.Get(env.Server.URL + "/auth/google/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	for _, c := range resp.Cookies() {
+		if c.Name == "oauth_state" {
+			// httptest uses HTTP, so Secure should be false
+			if c.Secure {
+				t.Error("expected Secure=false for HTTP base URL")
+			}
+			return
+		}
+	}
+	t.Error("oauth_state cookie not set")
+}
+
+func TestCLILoginOAuthStateCookieSecureFlag(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	resp, err := client.Get(env.Server.URL + "/auth/google/cli-login?port=12345")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	for _, c := range resp.Cookies() {
+		if c.Name == "oauth_state" {
+			if c.Secure {
+				t.Error("expected Secure=false for HTTP base URL")
+			}
+			return
+		}
+	}
+	t.Error("oauth_state cookie not set")
+}
