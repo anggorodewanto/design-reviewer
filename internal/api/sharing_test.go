@@ -602,5 +602,32 @@ func TestProjectAccessMiddlewareDBError(t *testing.T) {
 	}
 }
 
+// --- Phase 13: XSS fix ---
+
+func TestHandleListMembersHTMLInEmail(t *testing.T) {
+	h := setupTestHandler(t)
+	p, _ := h.DB.CreateProject("proj", "alice@test.com")
+	xss := `<img src=x onerror=alert(1)>`
+	h.DB.AddMember(p.ID, xss)
+
+	req := httptest.NewRequest("GET", "/api/projects/"+p.ID+"/members", nil)
+	req.SetPathValue("id", p.ID)
+	w := httptest.NewRecorder()
+	h.handleListMembers(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var members []map[string]string
+	json.NewDecoder(w.Body).Decode(&members)
+	if len(members) != 1 {
+		t.Fatalf("expected 1 member, got %d", len(members))
+	}
+	// API returns raw email in JSON — escaping is client-side
+	if members[0]["email"] != xss {
+		t.Errorf("email = %q, want %q", members[0]["email"], xss)
+	}
+}
+
 // Unused import guard
 var _ = context.Background

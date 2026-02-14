@@ -36,6 +36,12 @@
         setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
     });
 
+    function esc(s) {
+        var d = document.createElement('div');
+        d.textContent = s || '';
+        return d.innerHTML;
+    }
+
     function loadMembers() {
         fetch('/api/projects/' + projectID + '/members')
             .then(r => r.json())
@@ -45,8 +51,8 @@
                     return;
                 }
                 membersList.innerHTML = members.map(m =>
-                    '<div class="member-row"><span>' + m.email + '</span>' +
-                    (window.isOwner ? '<button class="btn-remove" data-email="' + m.email + '">Remove</button>' : '') +
+                    '<div class="member-row"><span>' + esc(m.email) + '</span>' +
+                    (window.isOwner ? '<button class="btn-remove" data-email="' + esc(m.email) + '">Remove</button>' : '') +
                     '</div>'
                 ).join('');
                 membersList.querySelectorAll('.btn-remove').forEach(btn => {

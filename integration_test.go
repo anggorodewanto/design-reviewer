@@ -2023,3 +2023,53 @@ func TestInviteRedirectAfterLogin(t *testing.T) {
 		t.Errorf("expected redirect to /invite/%s, got %s", token, loc)
 	}
 }
+
+// --- Phase 13: Fix XSS in Sharing UI ---
+
+func TestMembersAPIReturnsHTMLSpecialCharsUnescaped(t *testing.T) {
+	env, aliceSession := setupWithAuthUser(t, "Alice", "alice@test.com")
+	env.DB.CreateToken("tok", "Alice", "alice@test.com")
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := authUpload(t, env.Server.URL, "xss-proj", "tok", z)
+	pid := res["project_id"].(string)
+
+	xssEmail := `<img src=x onerror=alert(1)>`
+	env.DB.AddMember(pid, xssEmail)
+
+	req, _ := http.NewRequest("GET", env.Server.URL+"/api/projects/"+pid+"/members", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: aliceSession})
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var members []map[string]string
+	json.NewDecoder(resp.Body).Decode(&members)
+	if len(members) != 1 {
+		t.Fatalf("expected 1 member, got %d", len(members))
+	}
+	if members[0]["email"] != xssEmail {
+		t.Errorf("email = %q, want %q", members[0]["email"], xssEmail)
+	}
+}
+
+func TestSharingJSUsesEscHelper(t *testing.T) {
+	data, err := os.ReadFile("web/static/sharing.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+
+	if !strings.Contains(src, "function esc(") {
+		t.Error("sharing.js missing esc() helper function")
+	}
+	if strings.Contains(src, "m.email + '") || strings.Contains(src, "m.email +\n") {
+		t.Error("sharing.js uses raw m.email in string concatenation — XSS vulnerability")
+	}
+	if !strings.Contains(src, "esc(m.email)") {
+		t.Error("sharing.js does not wrap m.email with esc()")
+	}
+}
