@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func newTestDB(t *testing.T) *DB {
@@ -809,6 +810,34 @@ func TestGetInviteByTokenExpired(t *testing.T) {
 	_, err := d.GetInviteByToken(inv.Token)
 	if err == nil {
 		t.Error("expired invite should not be returned")
+	}
+}
+
+func TestCreateInviteSetsExpiresAt(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("p", "a@t.com")
+	inv, err := d.CreateInvite(p.ID, "a@t.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inv.ExpiresAt == nil {
+		t.Fatal("ExpiresAt should not be nil")
+	}
+	diff := time.Until(*inv.ExpiresAt)
+	if diff < 6*24*time.Hour || diff > 8*24*time.Hour {
+		t.Errorf("ExpiresAt should be ~7 days from now, got %v", diff)
+	}
+}
+
+func TestGetInviteByTokenNullExpiry(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("p", "a@t.com")
+	inv, _ := d.CreateInvite(p.ID, "a@t.com")
+	// Set expires_at to NULL to simulate legacy invite
+	d.Exec(`UPDATE project_invites SET expires_at = NULL WHERE id = ?`, inv.ID)
+	_, err := d.GetInviteByToken(inv.Token)
+	if err == nil {
+		t.Error("NULL-expiry invite should be treated as expired")
 	}
 }
 

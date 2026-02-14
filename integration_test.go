@@ -3308,3 +3308,71 @@ func TestCLILoginOAuthStateCookieSecureFlag(t *testing.T) {
 	}
 	t.Error("oauth_state cookie not set")
 }
+
+// --- Phase 34: Invite Link Expiration ---
+
+func TestInviteExpiredTokenRejected(t *testing.T) {
+	env, aliceSession := setupWithAuthUser(t, "Alice", "alice@test.com")
+	env.DB.CreateToken("tok", "Alice", "alice@test.com")
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := authUpload(t, env.Server.URL, "exp-proj", "tok", z)
+	pid := res["project_id"].(string)
+
+	// Alice creates invite
+	req, _ := http.NewRequest("POST", env.Server.URL+"/api/projects/"+pid+"/invites", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: aliceSession})
+	resp, _ := (&http.Client{}).Do(req)
+	var invRes map[string]string
+	json.NewDecoder(resp.Body).Decode(&invRes)
+	resp.Body.Close()
+	token := invRes["invite_url"][strings.LastIndex(invRes["invite_url"], "/")+1:]
+
+	// Expire the invite
+	env.DB.Exec(`UPDATE project_invites SET expires_at = datetime('now', '-1 hour') WHERE token = ?`, token)
+
+	// Bob tries to accept expired invite
+	bobSession, _ := authpkg.SignSession("test-secret", authpkg.User{Name: "Bob", Email: "bob@test.com"})
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	req2, _ := http.NewRequest("GET", env.Server.URL+"/invite/"+token, nil)
+	req2.AddCookie(&http.Cookie{Name: "session", Value: bobSession})
+	resp2, _ := client.Do(req2)
+	resp2.Body.Close()
+	if resp2.StatusCode == 302 {
+		t.Error("expired invite should not redirect to project")
+	}
+}
+
+func TestInviteNullExpiryRejected(t *testing.T) {
+	env, aliceSession := setupWithAuthUser(t, "Alice", "alice@test.com")
+	env.DB.CreateToken("tok", "Alice", "alice@test.com")
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := authUpload(t, env.Server.URL, "null-proj", "tok", z)
+	pid := res["project_id"].(string)
+
+	// Alice creates invite
+	req, _ := http.NewRequest("POST", env.Server.URL+"/api/projects/"+pid+"/invites", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: aliceSession})
+	resp, _ := (&http.Client{}).Do(req)
+	var invRes map[string]string
+	json.NewDecoder(resp.Body).Decode(&invRes)
+	resp.Body.Close()
+	token := invRes["invite_url"][strings.LastIndex(invRes["invite_url"], "/")+1:]
+
+	// Set expires_at to NULL (simulate legacy invite)
+	env.DB.Exec(`UPDATE project_invites SET expires_at = NULL WHERE token = ?`, token)
+
+	// Bob tries to accept NULL-expiry invite
+	bobSession, _ := authpkg.SignSession("test-secret", authpkg.User{Name: "Bob", Email: "bob@test.com"})
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	req2, _ := http.NewRequest("GET", env.Server.URL+"/invite/"+token, nil)
+	req2.AddCookie(&http.Cookie{Name: "session", Value: bobSession})
+	resp2, _ := client.Do(req2)
+	resp2.Body.Close()
+	if resp2.StatusCode == 302 {
+		t.Error("NULL-expiry invite should not redirect to project")
+	}
+}
