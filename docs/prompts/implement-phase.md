@@ -48,10 +48,17 @@ Go through every requirement in the phase spec and verify:
 - Aim for the best possible coverage on all new and modified packages — cover every reachable code path
 - Run: `go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out`
 - Review uncovered lines and add tests for any remaining gaps
+
+### All Tests Must Pass
+
+- Run `go test -count=1 ./...` after writing tests — **every test must pass**, both new and pre-existing
+- If any pre-existing test fails, investigate and fix it before proceeding — the failure may be caused by your changes or by a missing element the test expects
+- Do not move on to the next step until the full suite is green
 - Show the final coverage output
 
 ## Step 5: Final Check
 
-1. Run `go test -v -count=1 ./...` — all tests must pass (new AND existing)
-2. Run `go build ./...` — must compile cleanly
-3. Show a summary of: files created/modified, test count, coverage per package
+1. Run `go test -v -count=1 ./...` — **all tests must pass** (new AND existing), zero failures
+2. If any test fails, fix the issue and re-run until the entire suite is green
+3. Run `go build ./...` — must compile cleanly
+4. Show a summary of: files created/modified, test count, coverage per package
