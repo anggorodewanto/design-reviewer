@@ -423,6 +423,8 @@ tr:hover td { background: rgba(167,139,250,.04); }
 }
 .btn-submit:hover { background: var(--accent-hover); }
 
+.shortcut-hint { display: block; font-size: 0.7rem; color: var(--text-muted); margin: -0.25rem 0 0.5rem; }
+
 .btn-resolve {
     margin-top: 0.75rem;
     padding: 0.45rem 1rem;

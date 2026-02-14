@@ -10,6 +10,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var comments = [];
     var currentFilter = "all";
     var currentPage = "";
+    var shortcutHint = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘+Enter to post" : "Ctrl+Enter to post";
 
     // Determine current page from iframe src
     function getCurrentPage() {
@@ -71,6 +72,7 @@ document.addEventListener("DOMContentLoaded", function () {
             '<div class="panel-body">' +
             nameField +
             '<textarea class="comment-input" placeholder="Add a comment..." id="nc-body" rows="3"></textarea>' +
+            '<span class="shortcut-hint">' + shortcutHint + '</span>' +
             '<button class="btn-submit" id="nc-submit">Post</button>' +
             '</div>';
         panel.classList.add("open");
@@ -96,6 +98,12 @@ document.addEventListener("DOMContentLoaded", function () {
                 loadComments();
             });
         });
+        document.getElementById("nc-body").addEventListener("keydown", function (e) {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                document.getElementById("nc-submit").click();
+            }
+        });
     }
 
     // Open comment panel for existing pin
@@ -114,6 +122,7 @@ document.addEventListener("DOMContentLoaded", function () {
         html += '<div class="reply-form">' +
             (window.authUser ? '' : '<input class="comment-input" placeholder="Your name" id="rp-name">') +
             '<textarea class="comment-input" placeholder="Reply..." id="rp-body" rows="2"></textarea>' +
+            '<span class="shortcut-hint">' + shortcutHint + '</span>' +
             '<button class="btn-submit" id="rp-submit">Reply</button>' +
             '</div>' +
             '<button class="btn-resolve" id="rp-resolve">' + (c.resolved ? "Unresolve" : "Resolve") + '</button>' +
@@ -131,6 +140,12 @@ document.addEventListener("DOMContentLoaded", function () {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ author_name: name || "Anonymous", author_email: "", body: body })
             }).then(function () { loadComments().then(function () { openPanelById(c.id); }); });
+        });
+        document.getElementById("rp-body").addEventListener("keydown", function (e) {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                document.getElementById("rp-submit").click();
+            }
         });
         document.getElementById("rp-resolve").addEventListener("click", function () {
             fetch("/api/comments/" + c.id + "/resolve", { method: "PATCH" })

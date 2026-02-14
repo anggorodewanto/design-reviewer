@@ -2246,3 +2246,47 @@ func TestDesignFileNestedPathWorks(t *testing.T) {
 		t.Errorf("expected 'imgdata', got %q", string(body))
 	}
 }
+
+// --- Phase 19: Keyboard Shortcut to Post Comments ---
+
+func TestAnnotationsJSContainsKeyboardShortcut(t *testing.T) {
+	env := setup(t)
+	resp, err := http.Get(env.Server.URL + "/static/annotations.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+	for _, needle := range []string{
+		`e.key === "Enter"`,
+		"e.ctrlKey",
+		"e.metaKey",
+		"nc-body",
+		"rp-body",
+		"shortcut-hint",
+	} {
+		if !strings.Contains(body, needle) {
+			t.Errorf("annotations.js missing expected content: %s", needle)
+		}
+	}
+}
+
+func TestStyleCSSContainsShortcutHint(t *testing.T) {
+	env := setup(t)
+	resp, err := http.Get(env.Server.URL + "/static/style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), ".shortcut-hint") {
+		t.Error("style.css missing .shortcut-hint class")
+	}
+}
