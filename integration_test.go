@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -2519,5 +2520,49 @@ func TestCommentAccessAllowsMember(t *testing.T) {
 	resp4.Body.Close()
 	if resp4.StatusCode != 200 {
 		t.Errorf("move: expected 200, got %d", resp4.StatusCode)
+	}
+}
+
+// --- Phase 22: Zip Bomb Limits ---
+
+func TestUploadTooManyFilesReturns400(t *testing.T) {
+	env := setup(t)
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	for i := 0; i < 1002; i++ {
+		f, _ := w.Create(fmt.Sprintf("f%d.txt", i))
+		f.Write([]byte("x"))
+	}
+	f, _ := w.Create("index.html")
+	f.Write([]byte("<h1>hi</h1>"))
+	w.Close()
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	mw.WriteField("name", "bomb-proj")
+	fw, _ := mw.CreateFormFile("file", "upload.zip")
+	fw.Write(buf.Bytes())
+	mw.Close()
+
+	resp, err := http.Post(env.Server.URL+"/api/upload", mw.FormDataContentType(), &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), "too many files") {
+		t.Errorf("expected 'too many files' error, got %q", string(b))
+	}
+}
+
+func TestUploadWithinLimitsStillWorks(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "<h1>ok</h1>", "style.css": "body{}"})
+	res := uploadZip(t, env.Server.URL, "safe-proj", z)
+	if res["version_num"].(float64) != 1 {
+		t.Errorf("expected version_num=1, got %v", res["version_num"])
 	}
 }

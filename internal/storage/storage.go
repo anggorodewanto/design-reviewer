@@ -19,6 +19,9 @@ func New(basePath string) *Storage {
 	return &Storage{BasePath: basePath}
 }
 
+const maxDecompressedSize = 500 << 20 // 500 MB
+const maxFileCount = 1000
+
 func (s *Storage) SaveUpload(versionID string, zipData io.Reader) error {
 	data, err := io.ReadAll(zipData)
 	if err != nil {
@@ -31,6 +34,9 @@ func (s *Storage) SaveUpload(versionID string, zipData io.Reader) error {
 	if len(zr.File) == 0 {
 		return fmt.Errorf("zip is empty")
 	}
+	if len(zr.File) > maxFileCount {
+		return fmt.Errorf("zip contains too many files (max %d)", maxFileCount)
+	}
 	hasHTML := false
 	for _, f := range zr.File {
 		if strings.HasSuffix(strings.ToLower(f.Name), ".html") && !f.FileInfo().IsDir() {
@@ -42,6 +48,7 @@ func (s *Storage) SaveUpload(versionID string, zipData io.Reader) error {
 		return fmt.Errorf("zip must contain at least one .html file")
 	}
 	dir := filepath.Join(s.BasePath, versionID)
+	var totalWritten int64
 	for _, f := range zr.File {
 		target := filepath.Join(dir, f.Name)
 		if !strings.HasPrefix(target, filepath.Clean(dir)+string(os.PathSeparator)) && target != filepath.Clean(dir) {
@@ -61,11 +68,15 @@ func (s *Storage) SaveUpload(versionID string, zipData io.Reader) error {
 			rc.Close()
 			return err
 		}
-		_, err = io.Copy(out, rc)
+		n, err := io.Copy(out, io.LimitReader(rc, maxDecompressedSize-totalWritten+1))
 		rc.Close()
 		out.Close()
+		totalWritten += n
 		if err != nil {
 			return err
+		}
+		if totalWritten > maxDecompressedSize {
+			return fmt.Errorf("decompressed size exceeds limit (%d bytes)", maxDecompressedSize)
 		}
 	}
 	return nil

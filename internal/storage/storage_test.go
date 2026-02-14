@@ -3,9 +3,11 @@ package storage
 import (
 	"archive/zip"
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -176,5 +178,86 @@ func TestSaveUploadHTMLCaseInsensitive(t *testing.T) {
 	z := makeZip(t, map[string]string{"PAGE.HTML": "<h1>hi</h1>"})
 	if err := s.SaveUpload("v1", z); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// --- Phase 22: Zip Bomb Limits ---
+
+func TestSaveUploadTooManyFiles(t *testing.T) {
+	s := New(filepath.Join(t.TempDir(), "uploads"))
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	for i := 0; i <= 1000; i++ {
+		f, _ := w.Create(fmt.Sprintf("f%d.txt", i))
+		f.Write([]byte("x"))
+	}
+	f, _ := w.Create("index.html")
+	f.Write([]byte("<h1>hi</h1>"))
+	w.Close()
+
+	err := s.SaveUpload("v1", &buf)
+	if err == nil {
+		t.Fatal("expected error for too many files")
+	}
+	if !strings.Contains(err.Error(), "too many files") {
+		t.Errorf("error = %q, want 'too many files'", err)
+	}
+}
+
+func TestSaveUploadExactlyMaxFilesAllowed(t *testing.T) {
+	s := New(filepath.Join(t.TempDir(), "uploads"))
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	f, _ := w.Create("index.html")
+	f.Write([]byte("<h1>hi</h1>"))
+	for i := 1; i < 1000; i++ {
+		f, _ := w.Create(fmt.Sprintf("f%d.txt", i))
+		f.Write([]byte("x"))
+	}
+	w.Close()
+
+	err := s.SaveUpload("v1", &buf)
+	if err != nil {
+		t.Fatalf("1000 files should be allowed: %v", err)
+	}
+}
+
+func TestSaveUploadDecompressedSizeExceeded(t *testing.T) {
+	s := New(filepath.Join(t.TempDir(), "uploads"))
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	f, _ := w.Create("index.html")
+	f.Write([]byte("<h1>hi</h1>"))
+	// Write a file that exceeds 500MB when decompressed
+	// We can't actually write 500MB in a test, so we'll use a smaller limit test
+	// by checking the error message pattern. Instead, create two large files
+	// that together exceed the limit. We'll write just over the limit.
+	big, _ := w.Create("big.bin")
+	// Write 500MB + 1 byte worth of data — but that's too slow for a test.
+	// Instead, let's verify the mechanism works with the actual constant.
+	// We'll create a file that's exactly at the boundary.
+	chunk := bytes.Repeat([]byte("A"), 1<<20) // 1MB
+	for i := 0; i < 501; i++ {
+		big.Write(chunk)
+	}
+	w.Close()
+
+	err := s.SaveUpload("v1", &buf)
+	if err == nil {
+		t.Fatal("expected error for decompressed size exceeding limit")
+	}
+	if !strings.Contains(err.Error(), "decompressed size exceeds limit") {
+		t.Errorf("error = %q, want 'decompressed size exceeds limit'", err)
+	}
+}
+
+func TestSaveUploadDecompressedSizeWithinLimit(t *testing.T) {
+	s := New(filepath.Join(t.TempDir(), "uploads"))
+	z := makeZip(t, map[string]string{
+		"index.html": "<h1>hi</h1>",
+		"big.css":    string(bytes.Repeat([]byte("x"), 1<<20)), // 1MB
+	})
+	if err := s.SaveUpload("v1", z); err != nil {
+		t.Fatalf("upload within limit should succeed: %v", err)
 	}
 }
