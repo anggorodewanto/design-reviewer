@@ -3,6 +3,7 @@ package integration
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -2564,5 +2565,49 @@ func TestUploadWithinLimitsStillWorks(t *testing.T) {
 	res := uploadZip(t, env.Server.URL, "safe-proj", z)
 	if res["version_num"].(float64) != 1 {
 		t.Errorf("expected version_num=1, got %v", res["version_num"])
+	}
+}
+
+// --- Phase 23: Session Expiration ---
+
+func TestExpiredSessionRedirectsToLogin(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	// Craft a session with past expiration by signing manually
+	u := authpkg.User{Name: "Expired", Email: "expired@test.com", ExpiresAt: 1}
+	data, _ := json.Marshal(u)
+	sig := authpkg.HmacSignExported("integration-test-secret", data)
+	expiredSession := base64.RawURLEncoding.EncodeToString(data) + "." + base64.RawURLEncoding.EncodeToString(sig)
+
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	req, _ := http.NewRequest("GET", env.Server.URL+"/", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: expiredSession})
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Errorf("expected 302 for expired session, got %d", resp.StatusCode)
+	}
+}
+
+func TestExpiredSessionAPI401(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	u := authpkg.User{Name: "Expired", Email: "expired@test.com", ExpiresAt: 1}
+	data, _ := json.Marshal(u)
+	sig := authpkg.HmacSignExported("integration-test-secret", data)
+	expiredSession := base64.RawURLEncoding.EncodeToString(data) + "." + base64.RawURLEncoding.EncodeToString(sig)
+
+	req, _ := http.NewRequest("GET", env.Server.URL+"/api/projects", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: expiredSession})
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401 for expired session on API, got %d", resp.StatusCode)
 	}
 }

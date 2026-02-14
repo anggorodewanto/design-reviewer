@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"golang.org/x/oauth2"
 )
@@ -240,6 +241,55 @@ func TestSetSessionCookieSecureFlag(t *testing.T) {
 			}
 			t.Error("session cookie not found")
 		})
+	}
+}
+
+// --- Phase 23: Session Expiration ---
+
+func TestSignSessionSetsExpiration(t *testing.T) {
+	val, err := SignSession("secret", User{Name: "A", Email: "a@t.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := VerifySession("secret", val)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.ExpiresAt == 0 {
+		t.Error("ExpiresAt should be set")
+	}
+	// Should be ~24h from now
+	diff := u.ExpiresAt - time.Now().Unix()
+	if diff < 86390 || diff > 86410 {
+		t.Errorf("ExpiresAt should be ~24h from now, diff=%d", diff)
+	}
+}
+
+func TestVerifySessionRejectsExpired(t *testing.T) {
+	// Manually craft a session with past expiration
+	u := User{Name: "A", Email: "a@t.com", ExpiresAt: time.Now().Add(-1 * time.Hour).Unix()}
+	data, _ := json.Marshal(u)
+	sig := hmacSign("secret", data)
+	val := base64.RawURLEncoding.EncodeToString(data) + "." + base64.RawURLEncoding.EncodeToString(sig)
+
+	_, err := VerifySession("secret", val)
+	if err == nil {
+		t.Error("expected error for expired session")
+	}
+	if err.Error() != "session expired" {
+		t.Errorf("expected 'session expired', got %q", err.Error())
+	}
+}
+
+func TestVerifySessionRejectsNoExpField(t *testing.T) {
+	// Craft a session without exp (like old sessions before this change)
+	data, _ := json.Marshal(map[string]string{"name": "A", "email": "a@t.com"})
+	sig := hmacSign("secret", data)
+	val := base64.RawURLEncoding.EncodeToString(data) + "." + base64.RawURLEncoding.EncodeToString(sig)
+
+	_, err := VerifySession("secret", val)
+	if err == nil {
+		t.Error("expected error for session without exp")
 	}
 }
 
