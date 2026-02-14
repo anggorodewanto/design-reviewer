@@ -2107,3 +2107,34 @@ func TestUploadUnderLimitStillWorks(t *testing.T) {
 		t.Errorf("expected version_num=1, got %v", res["version_num"])
 	}
 }
+
+// --- Phase 15: Validate CLI Login Port Parameter ---
+
+func TestCLILoginRejectsNonNumericPort(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	for _, port := range []string{"abc", "9876@evil.com/steal#", "0", "65536"} {
+		resp, err := http.Get(env.Server.URL + "/auth/google/cli-login?port=" + port)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("port=%q: expected 400, got %d", port, resp.StatusCode)
+		}
+	}
+}
+
+func TestCLILoginAcceptsValidPort(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := client.Get(env.Server.URL + "/auth/google/cli-login?port=9876")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Errorf("expected 302, got %d", resp.StatusCode)
+	}
+}

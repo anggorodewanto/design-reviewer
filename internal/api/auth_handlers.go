@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/ab/design-reviewer/internal/auth"
@@ -115,6 +116,11 @@ func (h *Handler) handleCLILogin(w http.ResponseWriter, r *http.Request) {
 	port := r.URL.Query().Get("port")
 	if port == "" {
 		http.Error(w, "missing port parameter", http.StatusBadRequest)
+		return
+	}
+	portNum, err := strconv.Atoi(port)
+	if err != nil || portNum < 1 || portNum > 65535 {
+		http.Error(w, "invalid port", http.StatusBadRequest)
 		return
 	}
 	state := auth.GenerateState() + ":" + port

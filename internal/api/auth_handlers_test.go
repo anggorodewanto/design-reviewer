@@ -218,6 +218,48 @@ func TestHandleCLILoginMissingPort(t *testing.T) {
 	}
 }
 
+// --- Phase 15: Validate CLI Login Port Parameter ---
+
+func TestHandleCLILoginInvalidPort(t *testing.T) {
+	h := setupAuthHandler(t)
+	cases := []struct {
+		name string
+		port string
+	}{
+		{"non-numeric", "abc"},
+		{"injection", "9876@evil.com/steal#"},
+		{"zero", "0"},
+		{"negative", "-1"},
+		{"too-large", "65536"},
+		{"float", "80.5"},
+		{"hex", "0x50"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/auth/google/cli-login?port="+tc.port, nil)
+			w := httptest.NewRecorder()
+			h.handleCLILogin(w, req)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("port=%q: expected 400, got %d", tc.port, w.Code)
+			}
+		})
+	}
+}
+
+func TestHandleCLILoginValidPortBoundaries(t *testing.T) {
+	h := setupAuthHandler(t)
+	for _, port := range []string{"1", "65535"} {
+		t.Run("port-"+port, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/auth/google/cli-login?port="+port, nil)
+			w := httptest.NewRecorder()
+			h.handleCLILogin(w, req)
+			if w.Code != http.StatusFound {
+				t.Errorf("port=%s: expected 302, got %d", port, w.Code)
+			}
+		})
+	}
+}
+
 func TestHandleTokenExchange(t *testing.T) {
 	h := setupAuthHandler(t)
 	body := `{"code":"auth-code"}`
