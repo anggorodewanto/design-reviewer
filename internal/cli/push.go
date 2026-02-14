@@ -81,15 +81,22 @@ func Push(dir, name, serverURL string) error {
 	defer resp.Body.Close()
 
 	var result map[string]any
-	json.NewDecoder(resp.Body).Decode(&result)
+	respBody, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
-		msg := "upload failed"
-		if errMsg, ok := result["error"].(string); ok {
-			msg = errMsg
+		if err := json.Unmarshal(respBody, &result); err == nil {
+			if errMsg, ok := result["error"].(string); ok {
+				return fmt.Errorf("%s", errMsg)
+			}
+		}
+		msg := strings.TrimSpace(string(respBody))
+		if msg == "" {
+			msg = "upload failed"
 		}
 		return fmt.Errorf("%s", msg)
 	}
+
+	json.Unmarshal(respBody, &result)
 
 	versionNum := result["version_num"]
 	projectID := result["project_id"]
