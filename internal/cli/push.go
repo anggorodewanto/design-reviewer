@@ -27,6 +27,7 @@ func Push(dir, name, serverURL string) error {
 	if serverURL == "" {
 		serverURL = "http://localhost:8080"
 	}
+	serverURL = strings.TrimRight(serverURL, "/")
 
 	// Validate directory
 	info, err := os.Stat(dir)

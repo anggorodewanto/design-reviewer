@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -21,6 +22,7 @@ func Login(serverURL string) error {
 	if serverURL == "" {
 		serverURL = "http://localhost:8080"
 	}
+	serverURL = strings.TrimRight(serverURL, "/")
 
 	tokenCh := make(chan string, 1)
 	errCh := make(chan error, 1)
