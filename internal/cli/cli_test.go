@@ -678,7 +678,7 @@ func TestInitContentHasRequiredSections(t *testing.T) {
 		"Self-Contained",
 		"No External Resources",
 		"File Structure",
-		"1440px",
+		"1080px",
 		"CSS Features That Work",
 		"What Won't Work",
 		"Tips for Best Results",

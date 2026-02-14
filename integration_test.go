@@ -1647,9 +1647,9 @@ func TestDeploymentFilesExist(t *testing.T) {
 			"/data/design-reviewer.db",
 		}},
 		{"fly.toml", []string{
-			`primary_region = "sin"`,
+			`primary_region = 'nrt'`,
 			"internal_port = 8080",
-			`destination = "/data"`,
+			`destination = '/data'`,
 			"auto_stop_machines",
 		}},
 		{".dockerignore", []string{".git", "data/"}},
@@ -1700,7 +1700,7 @@ func TestInitCreatesDesignGuidelines(t *testing.T) {
 		"Self-Contained",
 		"No External Resources",
 		"File Structure",
-		"1440px",
+		"1080px",
 		"CSS Features That Work",
 		"What Won't Work",
 		"Tips for Best Results",
@@ -1952,5 +1952,74 @@ func TestSeedProjectVisibleToAll(t *testing.T) {
 	}
 	if projects[0]["name"] != "Seed Project" {
 		t.Errorf("expected Seed Project, got %v", projects[0]["name"])
+	}
+}
+
+// --- Invite redirect after login ---
+
+func TestInviteRedirectAfterLogin(t *testing.T) {
+	env, aliceSession := setupWithAuthUser(t, "Alice", "alice@test.com")
+	env.DB.CreateToken("tok", "Alice", "alice@test.com")
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := authUpload(t, env.Server.URL, "invite-proj", "tok", z)
+	pid := res["project_id"].(string)
+
+	// Alice creates invite
+	req, _ := http.NewRequest("POST", env.Server.URL+"/api/projects/"+pid+"/invites", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: aliceSession})
+	resp, _ := (&http.Client{}).Do(req)
+	var invRes map[string]string
+	json.NewDecoder(resp.Body).Decode(&invRes)
+	resp.Body.Close()
+	token := invRes["invite_url"][strings.LastIndex(invRes["invite_url"], "/")+1:]
+
+	// Bob (no session) hits invite link — should redirect to /login with redirect_to cookie
+	noRedirectClient := &http.Client{CheckRedirect: func(r *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp2, err := noRedirectClient.Get(env.Server.URL + "/invite/" + token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != 302 {
+		t.Fatalf("expected 302, got %d", resp2.StatusCode)
+	}
+	if loc := resp2.Header.Get("Location"); loc != "/login" {
+		t.Fatalf("expected redirect to /login, got %s", loc)
+	}
+	// Check redirect_to cookie was set
+	var redirectCookie *http.Cookie
+	for _, c := range resp2.Cookies() {
+		if c.Name == "redirect_to" {
+			redirectCookie = c
+		}
+	}
+	if redirectCookie == nil || redirectCookie.Value != "/invite/"+token {
+		t.Fatalf("expected redirect_to cookie = /invite/%s, got %v", token, redirectCookie)
+	}
+
+	// Simulate OAuth callback with redirect_to cookie — Bob completes login
+	// First get the state from the login redirect
+	bobEnv, _ := setupWithAuthUser(t, "Bob", "bob@test.com")
+	_ = bobEnv // we reuse env but need Bob's OAuth mock
+
+	// Simulate: hit callback with state cookie + redirect_to cookie
+	stateCookie := &http.Cookie{Name: "oauth_state", Value: "test-state"}
+	callbackURL := env.Server.URL + "/auth/google/callback?state=test-state&code=test-code"
+	req3, _ := http.NewRequest("GET", callbackURL, nil)
+	req3.AddCookie(stateCookie)
+	req3.AddCookie(redirectCookie)
+	resp3, err := noRedirectClient.Do(req3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp3.Body.Close()
+	if resp3.StatusCode != 302 {
+		t.Fatalf("expected 302 from callback, got %d", resp3.StatusCode)
+	}
+	loc := resp3.Header.Get("Location")
+	if loc != "/invite/"+token {
+		t.Errorf("expected redirect to /invite/%s, got %s", token, loc)
 	}
 }

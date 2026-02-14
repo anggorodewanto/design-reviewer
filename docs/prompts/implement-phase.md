@@ -45,9 +45,9 @@ Go through every requirement in the phase spec and verify:
 
 ### Coverage Target
 
-- Aim for >80% coverage on all new and modified packages
+- Aim for the best possible coverage on all new and modified packages — cover every reachable code path
 - Run: `go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out`
-- If any new/modified package is below 80%, add more tests until it passes
+- Review uncovered lines and add tests for any remaining gaps
 - Show the final coverage output
 
 ## Step 5: Final Check

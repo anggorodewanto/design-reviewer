@@ -103,7 +103,12 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session error", http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusFound)
+	redirectTo := "/"
+	if c, err := r.Cookie("redirect_to"); err == nil && c.Value != "" && strings.HasPrefix(c.Value, "/") {
+		redirectTo = c.Value
+		http.SetCookie(w, &http.Cookie{Name: "redirect_to", Value: "", Path: "/", MaxAge: -1})
+	}
+	http.Redirect(w, r, redirectTo, http.StatusFound)
 }
 
 func (h *Handler) handleCLILogin(w http.ResponseWriter, r *http.Request) {

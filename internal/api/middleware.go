@@ -13,6 +13,14 @@ func (h *Handler) webMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie("session")
 		if err != nil || cookie.Value == "" {
+			http.SetCookie(w, &http.Cookie{
+				Name:     "redirect_to",
+				Value:    r.URL.RequestURI(),
+				Path:     "/",
+				HttpOnly: true,
+				SameSite: http.SameSiteLaxMode,
+				MaxAge:   300,
+			})
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
