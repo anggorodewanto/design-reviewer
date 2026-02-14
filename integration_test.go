@@ -2959,8 +2959,8 @@ func TestRateLimitReturns429OnExcessRequests(t *testing.T) {
 	srv := httptest.NewServer(rl.Middleware(mux))
 	t.Cleanup(func() { srv.Close(); database.Close() })
 
-	// Exhaust general burst (10 requests)
-	for i := 0; i < 10; i++ {
+	// Exhaust general burst (30 requests)
+	for i := 0; i < 30; i++ {
 		resp, err := http.Get(srv.URL + "/api/projects")
 		if err != nil {
 			t.Fatal(err)

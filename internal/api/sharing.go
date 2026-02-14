@@ -17,7 +17,7 @@ func (h *Handler) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 
 	inv, err := h.DB.CreateInvite(projectID, email)
 	if err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
+		serverError(w, "database error", err)
 		return
 	}
 
@@ -36,7 +36,7 @@ func (h *Handler) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleDeleteInvite(w http.ResponseWriter, r *http.Request) {
 	inviteID := r.PathValue("inviteID")
 	if err := h.DB.DeleteInvite(inviteID); err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
+		serverError(w, "database error", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -46,7 +46,7 @@ func (h *Handler) handleListMembers(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
 	members, err := h.DB.ListMembers(projectID)
 	if err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
+		serverError(w, "database error", err)
 		return
 	}
 	type memberJSON struct {
@@ -68,7 +68,7 @@ func (h *Handler) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 	// Cannot remove the owner
 	owner, err := h.DB.GetProjectOwner(projectID)
 	if err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
+		serverError(w, "database error", err)
 		return
 	}
 	if email == owner {
@@ -77,7 +77,7 @@ func (h *Handler) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.DB.RemoveMember(projectID, email); err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
+		serverError(w, "database error", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -104,13 +104,13 @@ func (h *Handler) handleAcceptInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
+		serverError(w, "database error", err)
 		return
 	}
 
 	_, email := auth.GetUserFromContext(r.Context())
 	if err := h.DB.AddMember(inv.ProjectID, email); err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
+		serverError(w, "database error", err)
 		return
 	}
 

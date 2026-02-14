@@ -44,7 +44,7 @@ func (h *Handler) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		filepath.Join(h.TemplatesDir, "login.html"),
 	)
 	if err != nil {
-		http.Error(w, "template error", http.StatusInternalServerError)
+		serverError(w, "template error", err)
 		return
 	}
 	tmpl.Execute(w, struct{ UserName string }{})
@@ -77,13 +77,13 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	token, err := h.OAuthConfig.Exchange(r, code)
 	if err != nil {
-		http.Error(w, "oauth exchange failed", http.StatusInternalServerError)
+		serverError(w, "oauth exchange failed", err)
 		return
 	}
 
 	name, email, err := h.OAuthConfig.GetUserInfo(token)
 	if err != nil {
-		http.Error(w, "failed to get user info", http.StatusInternalServerError)
+		serverError(w, "failed to get user info", err)
 		return
 	}
 
@@ -93,7 +93,7 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		port := state[idx+1:]
 		apiToken := auth.GenerateAPIToken()
 		if err := h.DB.CreateToken(apiToken, name, email); err != nil {
-			http.Error(w, "failed to create token", http.StatusInternalServerError)
+			serverError(w, "failed to create token", err)
 			return
 		}
 		redirectURL := fmt.Sprintf("http://localhost:%s/callback?token=%s&name=%s", port, apiToken, url.QueryEscape(name))
@@ -104,11 +104,11 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	secure := strings.HasPrefix(h.Auth.BaseURL, "https://")
 	sessionID := auth.GenerateSessionID()
 	if err := h.DB.CreateSession(sessionID, name, email); err != nil {
-		http.Error(w, "session error", http.StatusInternalServerError)
+		serverError(w, "session error", err)
 		return
 	}
 	if err := auth.SetSessionCookie(w, h.Auth.SessionSecret, auth.User{Name: name, Email: email, SessionID: sessionID}, secure); err != nil {
-		http.Error(w, "session error", http.StatusInternalServerError)
+		serverError(w, "session error", err)
 		return
 	}
 	redirectTo := "/"
@@ -163,19 +163,19 @@ func (h *Handler) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 
 	token, err := h.OAuthConfig.Exchange(r, req.Code)
 	if err != nil {
-		http.Error(w, "oauth exchange failed", http.StatusInternalServerError)
+		serverError(w, "oauth exchange failed", err)
 		return
 	}
 
 	name, email, err := h.OAuthConfig.GetUserInfo(token)
 	if err != nil {
-		http.Error(w, "failed to get user info", http.StatusInternalServerError)
+		serverError(w, "failed to get user info", err)
 		return
 	}
 
 	apiToken := auth.GenerateAPIToken()
 	if err := h.DB.CreateToken(apiToken, name, email); err != nil {
-		http.Error(w, "failed to create token", http.StatusInternalServerError)
+		serverError(w, "failed to create token", err)
 		return
 	}
 

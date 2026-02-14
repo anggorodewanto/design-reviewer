@@ -12,7 +12,7 @@ func (h *Handler) handleListVersions(w http.ResponseWriter, r *http.Request) {
 
 	versions, err := h.DB.ListVersions(projectID)
 	if err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
+		serverError(w, "database error", err)
 		return
 	}
 

@@ -36,7 +36,7 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 	// Read zip data into memory for storage
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, file); err != nil {
-		http.Error(w, "failed to read file", http.StatusInternalServerError)
+		serverError(w, "failed to read file", err)
 		return
 	}
 
@@ -55,14 +55,14 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
+		serverError(w, "database error", err)
 		return
 	}
 
 	// Create version
 	version, err := h.DB.CreateVersion(project.ID, "")
 	if err != nil {
-		http.Error(w, "failed to create version", http.StatusInternalServerError)
+		serverError(w, "failed to create version", err)
 		return
 	}
 

@@ -157,7 +157,7 @@ func New(dbPath string) (*DB, error) {
 		return nil, err
 	}
 	// Migration: add expires_at to tokens if missing
-	sqlDB.Exec(`ALTER TABLE tokens ADD COLUMN expires_at DATETIME NOT NULL DEFAULT (datetime('now', '+90 days'))`)
+	sqlDB.Exec(`ALTER TABLE tokens ADD COLUMN expires_at DATETIME DEFAULT '2099-12-31 23:59:59'`)
 	return &DB{sqlDB}, nil
 }
 

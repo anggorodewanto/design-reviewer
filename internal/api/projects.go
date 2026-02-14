@@ -82,7 +82,7 @@ func (h *Handler) handleListProjects(w http.ResponseWriter, r *http.Request) {
 		projects, err = h.DB.ListProjectsWithVersionCount()
 	}
 	if err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
+		serverError(w, "database error", err)
 		return
 	}
 	if projects == nil {
@@ -133,7 +133,7 @@ func (h *Handler) handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		http.Error(w, "database error", http.StatusInternalServerError)
+		serverError(w, "database error", err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -150,13 +150,13 @@ func (h *Handler) handleHome(w http.ResponseWriter, r *http.Request) {
 		projects, err = h.DB.ListProjectsWithVersionCount()
 	}
 	if err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
+		serverError(w, "database error", err)
 		return
 	}
 
 	tmpl, err := template.ParseFiles(h.TemplatesDir+"/layout.html", h.TemplatesDir+"/home.html")
 	if err != nil {
-		http.Error(w, "template error", http.StatusInternalServerError)
+		serverError(w, "template error", err)
 		return
 	}
 

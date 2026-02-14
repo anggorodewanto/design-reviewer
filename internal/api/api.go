@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"os"
 
@@ -8,6 +9,11 @@ import (
 	"github.com/ab/design-reviewer/internal/db"
 	"github.com/ab/design-reviewer/internal/storage"
 )
+
+func serverError(w http.ResponseWriter, msg string, err error) {
+	log.Printf("ERROR: %s: %v", msg, err)
+	http.Error(w, msg, http.StatusInternalServerError)
+}
 
 type noDirFS struct{ http.FileSystem }
 

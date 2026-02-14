@@ -36,14 +36,14 @@ func (h *Handler) handleGetComments(w http.ResponseWriter, r *http.Request) {
 
 	comments, err := h.DB.GetUnresolvedCommentsUpTo(versionID)
 	if err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
+		serverError(w, "database error", err)
 		return
 	}
 
 	// Also get resolved comments for this specific version
 	allForVersion, err := h.DB.GetCommentsForVersion(versionID)
 	if err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
+		serverError(w, "database error", err)
 		return
 	}
 
@@ -63,7 +63,7 @@ func (h *Handler) handleGetComments(w http.ResponseWriter, r *http.Request) {
 	for _, c := range comments {
 		replies, err := h.DB.GetReplies(c.ID)
 		if err != nil {
-			http.Error(w, "database error", http.StatusInternalServerError)
+			serverError(w, "database error", err)
 			return
 		}
 		rj := make([]replyJSON, len(replies))
@@ -127,7 +127,7 @@ func (h *Handler) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 
 	c, err := h.DB.CreateComment(versionID, req.Page, req.XPercent, req.YPercent, req.AuthorName, req.AuthorEmail, req.Body)
 	if err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
+		serverError(w, "database error", err)
 		return
 	}
 
@@ -178,7 +178,7 @@ func (h *Handler) handleCreateReply(w http.ResponseWriter, r *http.Request) {
 
 	reply, err := h.DB.CreateReply(commentID, req.AuthorName, req.AuthorEmail, req.Body)
 	if err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
+		serverError(w, "database error", err)
 		return
 	}
 
@@ -212,7 +212,7 @@ func (h *Handler) handleMoveComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.DB.MoveComment(commentID, req.XPercent, req.YPercent); err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
+		serverError(w, "database error", err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -228,7 +228,7 @@ func (h *Handler) handleToggleResolve(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		http.Error(w, "database error", http.StatusInternalServerError)
+		serverError(w, "database error", err)
 		return
 	}
 

@@ -18,7 +18,7 @@ func (h *Handler) handleViewer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
+		serverError(w, "database error", err)
 		return
 	}
 
@@ -34,7 +34,7 @@ func (h *Handler) handleViewer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
-			http.Error(w, "database error", http.StatusInternalServerError)
+			serverError(w, "database error", err)
 			return
 		}
 		version = &struct {
@@ -48,7 +48,7 @@ func (h *Handler) handleViewer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
-			http.Error(w, "database error", http.StatusInternalServerError)
+			serverError(w, "database error", err)
 			return
 		}
 		version = &struct {
@@ -59,7 +59,7 @@ func (h *Handler) handleViewer(w http.ResponseWriter, r *http.Request) {
 
 	pages, err := h.Storage.ListHTMLFiles(version.ID)
 	if err != nil {
-		http.Error(w, "storage error", http.StatusInternalServerError)
+		serverError(w, "storage error", err)
 		return
 	}
 	sort.Strings(pages)
@@ -77,7 +77,7 @@ func (h *Handler) handleViewer(w http.ResponseWriter, r *http.Request) {
 
 	tmpl, err := template.ParseFiles(h.TemplatesDir+"/layout.html", h.TemplatesDir+"/viewer.html")
 	if err != nil {
-		http.Error(w, "template error", http.StatusInternalServerError)
+		serverError(w, "template error", err)
 		return
 	}
 

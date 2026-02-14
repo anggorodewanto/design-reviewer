@@ -85,8 +85,8 @@ func TestRateLimiterMiddleware_BlocksOverLimit(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	// Exhaust the general burst (10)
-	for i := 0; i < 10; i++ {
+	// Exhaust the general burst (30)
+	for i := 0; i < 30; i++ {
 		req := httptest.NewRequest("GET", "/api/projects", nil)
 		req.RemoteAddr = "5.5.5.5:1234"
 		w := httptest.NewRecorder()
