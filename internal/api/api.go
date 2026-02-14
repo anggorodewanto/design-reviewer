@@ -2,11 +2,26 @@ package api
 
 import (
 	"net/http"
+	"os"
 
 	"github.com/ab/design-reviewer/internal/auth"
 	"github.com/ab/design-reviewer/internal/db"
 	"github.com/ab/design-reviewer/internal/storage"
 )
+
+type noDirFS struct{ http.FileSystem }
+
+func (n noDirFS) Open(name string) (http.File, error) {
+	f, err := n.FileSystem.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	if s, _ := f.Stat(); s.IsDir() {
+		f.Close()
+		return nil, os.ErrNotExist
+	}
+	return f, nil
+}
 
 // DataStore abstracts database operations for testability.
 type DataStore interface {
@@ -64,7 +79,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	}
 
 	// Static files (no auth)
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir(h.StaticDir))))
+	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(noDirFS{http.Dir(h.StaticDir)})))
 
 	// Web routes (web middleware)
 	webHome := http.HandlerFunc(h.handleHome)
