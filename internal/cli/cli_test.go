@@ -350,23 +350,37 @@ func TestLogoutNoConfig(t *testing.T) {
 
 // --- Login Tests ---
 
+// fakeOAuthServer returns an httptest.Server that simulates the server-side
+// cli-login endpoint: it reads the port from the query param and sends a
+// callback to localhost:{port}/callback with the given token and name.
+func fakeOAuthServer(t *testing.T, token, name string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		port := r.URL.Query().Get("port")
+		if port == "" {
+			http.Error(w, "missing port", 400)
+			return
+		}
+		go func() {
+			url := fmt.Sprintf("http://localhost:%s/callback?token=%s&name=%s", port, token, name)
+			for i := 0; i < 50; i++ {
+				resp, err := http.Get(url)
+				if err == nil {
+					resp.Body.Close()
+					return
+				}
+			}
+		}()
+		fmt.Fprint(w, "ok")
+	}))
+}
+
 func TestLoginCallbackReceivesToken(t *testing.T) {
 	setTestConfig(t)
+	srv := fakeOAuthServer(t, "test-token", "Test+User")
+	defer srv.Close()
 
-	// Start a fake "server" that the CLI would open browser to
-	// We'll simulate the callback directly
-	go func() {
-		// Wait for the login server to start, then hit the callback
-		for i := 0; i < 50; i++ {
-			resp, err := http.Get("http://localhost:9876/callback?token=test-token&name=Test+User")
-			if err == nil {
-				resp.Body.Close()
-				return
-			}
-		}
-	}()
-
-	err := Login("http://localhost:8080")
+	err := Login(srv.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,8 +389,8 @@ func TestLoginCallbackReceivesToken(t *testing.T) {
 	if cfg.Token != "test-token" {
 		t.Errorf("token = %q, want 'test-token'", cfg.Token)
 	}
-	if cfg.Server != "http://localhost:8080" {
-		t.Errorf("server = %q, want 'http://localhost:8080'", cfg.Server)
+	if cfg.Server != srv.URL {
+		t.Errorf("server = %q, want %q", cfg.Server, srv.URL)
 	}
 }
 
@@ -437,17 +451,9 @@ func TestZipDirectoryEmptyDir(t *testing.T) {
 
 func TestLoginServerURLFromConfig(t *testing.T) {
 	setTestConfig(t)
-	SaveConfig(&Config{Server: "http://localhost:8080"})
-
-	go func() {
-		for i := 0; i < 50; i++ {
-			resp, err := http.Get("http://localhost:9876/callback?token=tok2&name=User2")
-			if err == nil {
-				resp.Body.Close()
-				return
-			}
-		}
-	}()
+	srv := fakeOAuthServer(t, "tok2", "User2")
+	defer srv.Close()
+	SaveConfig(&Config{Server: srv.URL})
 
 	err := Login("")
 	if err != nil {
@@ -462,24 +468,63 @@ func TestLoginServerURLFromConfig(t *testing.T) {
 func TestLoginCallbackMissingToken(t *testing.T) {
 	setTestConfig(t)
 
-	go func() {
-		for i := 0; i < 50; i++ {
-			resp, err := http.Get("http://localhost:9876/callback")
-			if err == nil {
-				resp.Body.Close()
-				// Now send a valid one
-				resp2, err2 := http.Get("http://localhost:9876/callback?token=valid")
-				if err2 == nil {
-					resp2.Body.Close()
+	// Server that first sends a callback without a token, then with one
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		port := r.URL.Query().Get("port")
+		go func() {
+			base := fmt.Sprintf("http://localhost:%s/callback", port)
+			for i := 0; i < 50; i++ {
+				resp, err := http.Get(base)
+				if err == nil {
+					resp.Body.Close()
+					resp2, err2 := http.Get(base + "?token=valid")
+					if err2 == nil {
+						resp2.Body.Close()
+					}
+					return
 				}
-				return
 			}
-		}
-	}()
+		}()
+		fmt.Fprint(w, "ok")
+	}))
+	defer srv.Close()
 
-	err := Login("http://localhost:8080")
+	err := Login(srv.URL)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// --- Phase 32: Random Port ---
+
+func TestLoginUsesRandomPort(t *testing.T) {
+	setTestConfig(t)
+	var receivedPort string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPort = r.URL.Query().Get("port")
+		go func() {
+			url := fmt.Sprintf("http://localhost:%s/callback?token=t1&name=U1", receivedPort)
+			for i := 0; i < 50; i++ {
+				resp, err := http.Get(url)
+				if err == nil {
+					resp.Body.Close()
+					return
+				}
+			}
+		}()
+		fmt.Fprint(w, "ok")
+	}))
+	defer srv.Close()
+
+	err := Login(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receivedPort == "" {
+		t.Fatal("server never received port parameter")
+	}
+	if receivedPort == "9876" {
+		t.Error("port should be random, not the old hardcoded 9876")
 	}
 }
 

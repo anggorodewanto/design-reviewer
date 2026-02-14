@@ -3189,3 +3189,73 @@ func TestStaticFileStillServes(t *testing.T) {
 		t.Error("expected non-empty response body for style.css")
 	}
 }
+
+// --- Phase 32: CLI Random Port ---
+
+func TestCLILoginDynamicPortInState(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	resp, err := client.Get(env.Server.URL + "/auth/google/cli-login?port=44321")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("expected 302, got %d", resp.StatusCode)
+	}
+
+	var stateCookie *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == "oauth_state" {
+			stateCookie = c
+		}
+	}
+	if stateCookie == nil {
+		t.Fatal("no oauth_state cookie")
+	}
+	if !strings.HasSuffix(stateCookie.Value, ":44321") {
+		t.Errorf("state should end with :44321, got %s", stateCookie.Value)
+	}
+}
+
+func TestCLILoginDynamicPortCallbackRedirect(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	resp1, _ := client.Get(env.Server.URL + "/auth/google/cli-login?port=55555")
+	resp1.Body.Close()
+
+	var stateCookie *http.Cookie
+	for _, c := range resp1.Cookies() {
+		if c.Name == "oauth_state" {
+			stateCookie = c
+		}
+	}
+	if stateCookie == nil {
+		t.Fatal("no oauth_state cookie")
+	}
+
+	callbackURL := env.Server.URL + "/auth/google/callback?state=" + stateCookie.Value + "&code=test-code"
+	req, _ := http.NewRequest("GET", callbackURL, nil)
+	req.AddCookie(stateCookie)
+	resp2, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusFound {
+		t.Fatalf("expected 302, got %d", resp2.StatusCode)
+	}
+
+	loc := resp2.Header.Get("Location")
+	if !strings.Contains(loc, "localhost:55555/callback") {
+		t.Errorf("expected redirect to port 55555, got %s", loc)
+	}
+}
