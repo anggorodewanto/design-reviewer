@@ -51,7 +51,41 @@ document.addEventListener("DOMContentLoaded", function () {
             pin.dataset.index = i;
             pin.addEventListener("click", function (e) {
                 e.stopPropagation();
+                if (pin.dataset.dragged) { delete pin.dataset.dragged; return; }
                 openPanel(c);
+            });
+            pin.addEventListener("mousedown", function (e) {
+                e.stopPropagation();
+                e.preventDefault();
+                var startX = e.clientX, startY = e.clientY;
+                var dragging = false;
+                function onMove(ev) {
+                    var dx = ev.clientX - startX, dy = ev.clientY - startY;
+                    if (!dragging && dx * dx + dy * dy < 16) return;
+                    if (!dragging) { dragging = true; pin.classList.add("pin-dragging"); }
+                    var rect = overlay.getBoundingClientRect();
+                    var x = Math.max(0, Math.min(100, ((ev.clientX - rect.left) / rect.width) * 100));
+                    var y = Math.max(0, Math.min(100, ((ev.clientY - rect.top) / rect.height) * 100));
+                    pin.style.left = x + "%";
+                    pin.style.top = y + "%";
+                }
+                function onUp(ev) {
+                    document.removeEventListener("mousemove", onMove);
+                    document.removeEventListener("mouseup", onUp);
+                    pin.classList.remove("pin-dragging");
+                    if (!dragging) return;
+                    pin.dataset.dragged = "1";
+                    var rect = overlay.getBoundingClientRect();
+                    var nx = Math.max(0, Math.min(100, ((ev.clientX - rect.left) / rect.width) * 100));
+                    var ny = Math.max(0, Math.min(100, ((ev.clientY - rect.top) / rect.height) * 100));
+                    fetch("/api/comments/" + c.id + "/move", {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ x_percent: nx, y_percent: ny })
+                    }).then(function () { loadComments(); });
+                }
+                document.addEventListener("mousemove", onMove);
+                document.addEventListener("mouseup", onUp);
             });
             overlay.appendChild(pin);
         });

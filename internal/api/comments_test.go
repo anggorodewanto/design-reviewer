@@ -42,6 +42,7 @@ type mockDB struct {
 	listMembersErr             error
 	removeMemberErr            error
 	listProjectsForUserErr     error
+	moveCommentErr             error
 }
 
 func (m *mockDB) GetUnresolvedCommentsUpTo(versionID string) ([]db.Comment, error) {
@@ -223,6 +224,13 @@ func (m *mockDB) ListProjectsWithVersionCountForUser(email string) ([]db.Project
 		return nil, m.listProjectsForUserErr
 	}
 	return m.DataStore.ListProjectsWithVersionCountForUser(email)
+}
+
+func (m *mockDB) MoveComment(id string, x, y float64) error {
+	if m.moveCommentErr != nil {
+		return m.moveCommentErr
+	}
+	return m.DataStore.MoveComment(id, x, y)
 }
 
 var errDB = errors.New("db failure")
@@ -641,6 +649,102 @@ func TestToggleResolveErrDB(t *testing.T) {
 	req.SetPathValue("id", "x")
 	w := httptest.NewRecorder()
 	h.handleToggleResolve(w, req)
+	if w.Code != 500 {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+// --- Phase 20: Move Comment ---
+
+func TestHandleMoveComment(t *testing.T) {
+	h := setupTestHandler(t)
+	_, vid := seedProject(t, h, map[string]string{"index.html": "x"})
+	c, _ := h.DB.CreateComment(vid, "index.html", 10, 20, "A", "a@t.com", "hi")
+
+	body := `{"x_percent":55.5,"y_percent":77.3}`
+	req := httptest.NewRequest("PATCH", "/api/comments/"+c.ID+"/move", strings.NewReader(body))
+	req.SetPathValue("id", c.ID)
+	w := httptest.NewRecorder()
+	h.handleMoveComment(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var res map[string]bool
+	json.NewDecoder(w.Body).Decode(&res)
+	if !res["ok"] {
+		t.Error("expected ok=true")
+	}
+
+	// Verify coordinates updated
+	comments, _ := h.DB.GetCommentsForVersion(vid)
+	for _, cm := range comments {
+		if cm.ID == c.ID {
+			if cm.XPercent != 55.5 || cm.YPercent != 77.3 {
+				t.Errorf("coords = (%v, %v), want (55.5, 77.3)", cm.XPercent, cm.YPercent)
+			}
+		}
+	}
+}
+
+func TestHandleMoveCommentInvalidJSON(t *testing.T) {
+	h := setupTestHandler(t)
+	req := httptest.NewRequest("PATCH", "/api/comments/x/move", strings.NewReader("bad"))
+	req.SetPathValue("id", "x")
+	w := httptest.NewRecorder()
+	h.handleMoveComment(w, req)
+	if w.Code != 400 {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandleMoveCommentOutOfRange(t *testing.T) {
+	h := setupTestHandler(t)
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"x too high", `{"x_percent":101,"y_percent":50}`},
+		{"y too high", `{"x_percent":50,"y_percent":101}`},
+		{"x negative", `{"x_percent":-1,"y_percent":50}`},
+		{"y negative", `{"x_percent":50,"y_percent":-1}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("PATCH", "/api/comments/x/move", strings.NewReader(tt.body))
+			req.SetPathValue("id", "x")
+			w := httptest.NewRecorder()
+			h.handleMoveComment(w, req)
+			if w.Code != 400 {
+				t.Errorf("expected 400, got %d", w.Code)
+			}
+		})
+	}
+}
+
+func TestHandleMoveCommentBoundary(t *testing.T) {
+	h := setupTestHandler(t)
+	_, vid := seedProject(t, h, map[string]string{"index.html": "x"})
+	c, _ := h.DB.CreateComment(vid, "index.html", 10, 20, "A", "a@t.com", "hi")
+
+	// Exactly 0 and 100 should be valid
+	body := `{"x_percent":0,"y_percent":100}`
+	req := httptest.NewRequest("PATCH", "/api/comments/"+c.ID+"/move", strings.NewReader(body))
+	req.SetPathValue("id", c.ID)
+	w := httptest.NewRecorder()
+	h.handleMoveComment(w, req)
+	if w.Code != 200 {
+		t.Errorf("expected 200 for boundary values, got %d", w.Code)
+	}
+}
+
+func TestMoveCommentErrDB(t *testing.T) {
+	h := mockHandler(t, func(m *mockDB) { m.moveCommentErr = errDB })
+	body := `{"x_percent":50,"y_percent":50}`
+	req := httptest.NewRequest("PATCH", "/api/comments/x/move", strings.NewReader(body))
+	req.SetPathValue("id", "x")
+	w := httptest.NewRecorder()
+	h.handleMoveComment(w, req)
 	if w.Code != 500 {
 		t.Errorf("expected 500, got %d", w.Code)
 	}

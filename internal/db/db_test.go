@@ -931,3 +931,39 @@ func TestListMembersClosedDB(t *testing.T) {
 		t.Error("expected error")
 	}
 }
+
+// --- Phase 20: MoveComment ---
+
+func TestMoveComment(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("mv", "")
+	v, _ := d.CreateVersion(p.ID, "/tmp/v")
+	c, _ := d.CreateComment(v.ID, "index.html", 10, 20, "A", "a@t.com", "hi")
+
+	if err := d.MoveComment(c.ID, 55.5, 77.3); err != nil {
+		t.Fatal(err)
+	}
+
+	comments, _ := d.GetCommentsForVersion(v.ID)
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	if comments[0].XPercent != 55.5 || comments[0].YPercent != 77.3 {
+		t.Errorf("coords = (%v, %v), want (55.5, 77.3)", comments[0].XPercent, comments[0].YPercent)
+	}
+}
+
+func TestMoveCommentNonexistent(t *testing.T) {
+	d := newTestDB(t)
+	// Should not error — UPDATE affects 0 rows
+	if err := d.MoveComment("nonexistent", 10, 20); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestMoveCommentClosedDB(t *testing.T) {
+	d := closedDB(t)
+	if err := d.MoveComment("x", 10, 20); err == nil {
+		t.Error("expected error")
+	}
+}

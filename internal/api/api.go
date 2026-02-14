@@ -24,6 +24,7 @@ type DataStore interface {
 	GetCommentsForVersion(versionID string) ([]db.Comment, error)
 	GetUnresolvedCommentsUpTo(versionID string) ([]db.Comment, error)
 	ToggleResolve(commentID string) (bool, error)
+	MoveComment(id string, x, y float64) error
 	CreateReply(commentID, authorName, authorEmail, body string) (*db.Reply, error)
 	GetReplies(commentID string) ([]db.Reply, error)
 	CreateToken(token, userName, userEmail string) error
@@ -90,6 +91,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	apiCreateComment := http.HandlerFunc(h.handleCreateComment)
 	apiCreateReply := http.HandlerFunc(h.handleCreateReply)
 	apiToggleResolve := http.HandlerFunc(h.handleToggleResolve)
+	apiMoveComment := http.HandlerFunc(h.handleMoveComment)
 
 	// Sharing API handlers
 	apiCreateInvite := http.HandlerFunc(h.handleCreateInvite)
@@ -106,6 +108,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 		mux.Handle("POST /api/versions/{id}/comments", h.apiMiddleware(h.versionAccess(apiCreateComment)))
 		mux.Handle("POST /api/comments/{id}/replies", h.apiMiddleware(apiCreateReply))
 		mux.Handle("PATCH /api/comments/{id}/resolve", h.apiMiddleware(apiToggleResolve))
+		mux.Handle("PATCH /api/comments/{id}/move", h.apiMiddleware(apiMoveComment))
 		// Sharing routes
 		mux.Handle("POST /api/projects/{id}/invites", h.apiMiddleware(h.ownerOnly(apiCreateInvite)))
 		mux.Handle("DELETE /api/projects/{id}/invites/{inviteID}", h.apiMiddleware(h.ownerOnly(apiDeleteInvite)))
@@ -120,6 +123,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 		mux.Handle("POST /api/versions/{id}/comments", apiCreateComment)
 		mux.Handle("POST /api/comments/{id}/replies", apiCreateReply)
 		mux.Handle("PATCH /api/comments/{id}/resolve", apiToggleResolve)
+		mux.Handle("PATCH /api/comments/{id}/move", apiMoveComment)
 		mux.Handle("POST /api/projects/{id}/invites", apiCreateInvite)
 		mux.Handle("DELETE /api/projects/{id}/invites/{inviteID}", apiDeleteInvite)
 		mux.Handle("GET /api/projects/{id}/members", apiListMembers)

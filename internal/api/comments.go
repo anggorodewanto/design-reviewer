@@ -181,6 +181,28 @@ func (h *Handler) handleCreateReply(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) handleMoveComment(w http.ResponseWriter, r *http.Request) {
+	commentID := r.PathValue("id")
+	var req struct {
+		XPercent float64 `json:"x_percent"`
+		YPercent float64 `json:"y_percent"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.XPercent < 0 || req.XPercent > 100 || req.YPercent < 0 || req.YPercent > 100 {
+		http.Error(w, "x_percent and y_percent must be between 0 and 100", http.StatusBadRequest)
+		return
+	}
+	if err := h.DB.MoveComment(commentID, req.XPercent, req.YPercent); err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
 func (h *Handler) handleToggleResolve(w http.ResponseWriter, r *http.Request) {
 	commentID := r.PathValue("id")
 
