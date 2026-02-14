@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -269,5 +270,21 @@ func TestHandleUpdateStatusDBError(t *testing.T) {
 	h.handleUpdateStatus(w, req)
 	if w.Code != 500 {
 		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+// --- Phase 29: Request Body Size Limits ---
+
+func TestUpdateStatusOversizedBody(t *testing.T) {
+	h := setupTestHandler(t)
+
+	big := `{"status":"` + strings.Repeat("x", 1<<20) + `"}`
+	req := httptest.NewRequest("PATCH", "/api/projects/x/status", strings.NewReader(big))
+	req.SetPathValue("id", "x")
+	w := httptest.NewRecorder()
+	h.handleUpdateStatus(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413, got %d", w.Code)
 	}
 }

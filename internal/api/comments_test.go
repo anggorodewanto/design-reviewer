@@ -860,3 +860,50 @@ func TestCommentAccessGetCommentDBError(t *testing.T) {
 		t.Errorf("expected 404, got %d", w.Code)
 	}
 }
+
+// --- Phase 29: Request Body Size Limits ---
+
+func TestCreateCommentOversizedBody(t *testing.T) {
+	h := setupTestHandler(t)
+	_, vid := seedProject(t, h, map[string]string{"index.html": "x"})
+
+	big := `{"page":"index.html","x_percent":10,"y_percent":20,"body":"` + strings.Repeat("x", 1<<20) + `"}`
+	req := httptest.NewRequest("POST", "/api/versions/"+vid+"/comments", strings.NewReader(big))
+	req.SetPathValue("id", vid)
+	w := httptest.NewRecorder()
+	h.handleCreateComment(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413, got %d", w.Code)
+	}
+}
+
+func TestCreateReplyOversizedBody(t *testing.T) {
+	h := setupTestHandler(t)
+	_, vid := seedProject(t, h, map[string]string{"index.html": "x"})
+	c, _ := h.DB.CreateComment(vid, "index.html", 10, 20, "A", "a@t.com", "hi")
+
+	big := `{"body":"` + strings.Repeat("x", 1<<20) + `"}`
+	req := httptest.NewRequest("POST", "/api/comments/"+c.ID+"/replies", strings.NewReader(big))
+	req.SetPathValue("id", c.ID)
+	w := httptest.NewRecorder()
+	h.handleCreateReply(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413, got %d", w.Code)
+	}
+}
+
+func TestMoveCommentOversizedBody(t *testing.T) {
+	h := setupTestHandler(t)
+
+	big := `{"x_percent":50,"y_percent":50,"extra":"` + strings.Repeat("x", 1<<20) + `"}`
+	req := httptest.NewRequest("PATCH", "/api/comments/x/move", strings.NewReader(big))
+	req.SetPathValue("id", "x")
+	w := httptest.NewRecorder()
+	h.handleMoveComment(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413, got %d", w.Code)
+	}
+}

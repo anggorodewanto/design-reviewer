@@ -3013,3 +3013,137 @@ func TestRateLimitStrictEndpointsLowerBurst(t *testing.T) {
 		t.Errorf("expected 429 on strict endpoint, got %d", resp.StatusCode)
 	}
 }
+
+// --- Phase 29: Request Body Size Limits ---
+
+func TestOversizedCommentBodyReturns413(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "<h1>hi</h1>"})
+	result := uploadZip(t, env.Server.URL, "limit-proj", z)
+	vid := result["version_id"].(string)
+
+	big := `{"page":"index.html","x_percent":10,"y_percent":20,"body":"` + strings.Repeat("x", 1<<20) + `"}`
+	resp, err := http.Post(env.Server.URL+"/api/versions/"+vid+"/comments", "application/json", strings.NewReader(big))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413, got %d", resp.StatusCode)
+	}
+}
+
+func TestOversizedReplyBodyReturns413(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "<h1>hi</h1>"})
+	result := uploadZip(t, env.Server.URL, "reply-limit", z)
+	vid := result["version_id"].(string)
+
+	// Create a comment first
+	body := `{"page":"index.html","x_percent":10,"y_percent":20,"author_name":"A","body":"hi"}`
+	resp, _ := http.Post(env.Server.URL+"/api/versions/"+vid+"/comments", "application/json", strings.NewReader(body))
+	var comment map[string]any
+	json.NewDecoder(resp.Body).Decode(&comment)
+	resp.Body.Close()
+	cid := comment["id"].(string)
+
+	big := `{"body":"` + strings.Repeat("x", 1<<20) + `"}`
+	resp, err := http.Post(env.Server.URL+"/api/comments/"+cid+"/replies", "application/json", strings.NewReader(big))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413, got %d", resp.StatusCode)
+	}
+}
+
+func TestOversizedStatusUpdateReturns413(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	result := uploadZip(t, env.Server.URL, "status-limit", z)
+	pid := result["project_id"].(string)
+
+	big := `{"status":"` + strings.Repeat("x", 1<<20) + `"}`
+	req, _ := http.NewRequest("PATCH", env.Server.URL+"/api/projects/"+pid+"/status", strings.NewReader(big))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413, got %d", resp.StatusCode)
+	}
+}
+
+func TestOversizedMoveCommentReturns413(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	result := uploadZip(t, env.Server.URL, "move-limit", z)
+	vid := result["version_id"].(string)
+
+	// Create a comment
+	body := `{"page":"index.html","x_percent":10,"y_percent":20,"author_name":"A","body":"hi"}`
+	resp, _ := http.Post(env.Server.URL+"/api/versions/"+vid+"/comments", "application/json", strings.NewReader(body))
+	var comment map[string]any
+	json.NewDecoder(resp.Body).Decode(&comment)
+	resp.Body.Close()
+	cid := comment["id"].(string)
+
+	big := `{"x_percent":50,"y_percent":50,"extra":"` + strings.Repeat("x", 1<<20) + `"}`
+	req, _ := http.NewRequest("PATCH", env.Server.URL+"/api/comments/"+cid+"/move", strings.NewReader(big))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413, got %d", resp.StatusCode)
+	}
+}
+
+func TestNormalSizedRequestsStillWork(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	result := uploadZip(t, env.Server.URL, "normal-proj", z)
+	vid := result["version_id"].(string)
+	pid := result["project_id"].(string)
+
+	// Normal comment
+	body := `{"page":"index.html","x_percent":10,"y_percent":20,"author_name":"A","body":"hello"}`
+	resp, _ := http.Post(env.Server.URL+"/api/versions/"+vid+"/comments", "application/json", strings.NewReader(body))
+	if resp.StatusCode != 201 {
+		t.Errorf("comment: expected 201, got %d", resp.StatusCode)
+	}
+	var comment map[string]any
+	json.NewDecoder(resp.Body).Decode(&comment)
+	resp.Body.Close()
+	cid := comment["id"].(string)
+
+	// Normal reply
+	resp, _ = http.Post(env.Server.URL+"/api/comments/"+cid+"/replies", "application/json", strings.NewReader(`{"body":"reply"}`))
+	if resp.StatusCode != 201 {
+		t.Errorf("reply: expected 201, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Normal status update
+	req, _ := http.NewRequest("PATCH", env.Server.URL+"/api/projects/"+pid+"/status", strings.NewReader(`{"status":"in_review"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ = http.DefaultClient.Do(req)
+	if resp.StatusCode != 200 {
+		t.Errorf("status: expected 200, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Normal move
+	req, _ = http.NewRequest("PATCH", env.Server.URL+"/api/comments/"+cid+"/move", strings.NewReader(`{"x_percent":50,"y_percent":50}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ = http.DefaultClient.Do(req)
+	if resp.StatusCode != 200 {
+		t.Errorf("move: expected 200, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}

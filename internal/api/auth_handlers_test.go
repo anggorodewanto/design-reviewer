@@ -908,3 +908,18 @@ func TestAPIMiddlewareAcceptsValidServerSession(t *testing.T) {
 		t.Errorf("got email=%q, want bob@test.com", gotEmail)
 	}
 }
+
+// --- Phase 29: Request Body Size Limits ---
+
+func TestTokenExchangeOversizedBody(t *testing.T) {
+	h := setupAuthHandler(t)
+
+	big := `{"code":"` + strings.Repeat("x", 1<<20) + `"}`
+	req := httptest.NewRequest("POST", "/api/auth/token", strings.NewReader(big))
+	w := httptest.NewRecorder()
+	h.handleTokenExchange(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413, got %d", w.Code)
+	}
+}
