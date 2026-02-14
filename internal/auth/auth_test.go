@@ -310,3 +310,31 @@ func TestGetUserInfo(t *testing.T) {
 		t.Log("GetUserInfo succeeded with empty token")
 	}
 }
+
+// --- Phase 24: GenerateSessionID ---
+
+func TestGenerateSessionID(t *testing.T) {
+	s1 := GenerateSessionID()
+	s2 := GenerateSessionID()
+	if s1 == s2 {
+		t.Error("session IDs should be unique")
+	}
+	if len(s1) != 64 { // 32 bytes = 64 hex chars
+		t.Errorf("session ID length = %d, want 64", len(s1))
+	}
+}
+
+func TestSignSessionPreservesSessionID(t *testing.T) {
+	u := User{Name: "A", Email: "a@t.com", SessionID: "my-session-id"}
+	val, err := SignSession("secret", u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := VerifySession("secret", val)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SessionID != "my-session-id" {
+		t.Errorf("SessionID = %q, want my-session-id", got.SessionID)
+	}
+}

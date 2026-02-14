@@ -717,3 +717,194 @@ func TestAPIMiddlewareInvalidBearerThenValidSession(t *testing.T) {
 		t.Errorf("expected Fallback, got %q", gotName)
 	}
 }
+
+// --- Phase 24: Server-side Session Invalidation ---
+
+func TestHandleGoogleCallbackCreatesServerSession(t *testing.T) {
+	h := setupAuthHandler(t)
+	state := "test-state"
+
+	req := httptest.NewRequest("GET", "/auth/google/callback?code=authcode&state="+state, nil)
+	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: state})
+	w := httptest.NewRecorder()
+	h.handleGoogleCallback(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d", w.Code)
+	}
+	// Extract session cookie and verify it contains a session ID
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "session" {
+			u, err := auth.VerifySession(h.Auth.SessionSecret, c.Value)
+			if err != nil {
+				t.Fatalf("invalid session cookie: %v", err)
+			}
+			if u.SessionID == "" {
+				t.Error("session cookie missing SessionID")
+			}
+			// Verify session exists in DB
+			name, email, err := h.DB.GetSession(u.SessionID)
+			if err != nil {
+				t.Fatalf("session not found in DB: %v", err)
+			}
+			if name != "Test User" || email != "test@example.com" {
+				t.Errorf("session DB data: name=%q email=%q", name, email)
+			}
+			return
+		}
+	}
+	t.Error("session cookie not set")
+}
+
+func TestHandleGoogleCallbackCreateSessionError(t *testing.T) {
+	h := setupAuthHandler(t)
+	m := &mockDB{DataStore: h.DB, createSessionErr: errDB}
+	h.DB = m
+	state := "test-state"
+
+	req := httptest.NewRequest("GET", "/auth/google/callback?code=authcode&state="+state, nil)
+	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: state})
+	w := httptest.NewRecorder()
+	h.handleGoogleCallback(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestHandleLogoutDeletesServerSession(t *testing.T) {
+	h := setupAuthHandler(t)
+
+	// Create a server-side session
+	sessionID := "test-session-id"
+	h.DB.CreateSession(sessionID, "Test User", "test@example.com")
+
+	// Create a cookie with that session ID
+	val, _ := auth.SignSession(h.Auth.SessionSecret, auth.User{
+		Name: "Test User", Email: "test@example.com", SessionID: sessionID,
+	})
+
+	req := httptest.NewRequest("GET", "/auth/logout", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: val})
+	w := httptest.NewRecorder()
+	h.handleLogout(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d", w.Code)
+	}
+	// Verify session was deleted from DB
+	_, _, err := h.DB.GetSession(sessionID)
+	if err == nil {
+		t.Error("session should have been deleted from DB")
+	}
+}
+
+func TestWebMiddlewareRejectsInvalidatedSession(t *testing.T) {
+	h := setupAuthHandler(t)
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	})
+	handler := h.webMiddleware(inner)
+
+	// Create session in DB, then delete it
+	sessionID := "revoked-session"
+	h.DB.CreateSession(sessionID, "Alice", "alice@test.com")
+	h.DB.DeleteSession(sessionID)
+
+	val, _ := auth.SignSession(h.Auth.SessionSecret, auth.User{
+		Name: "Alice", Email: "alice@test.com", SessionID: sessionID,
+	})
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: val})
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("expected 302 redirect, got %d", w.Code)
+	}
+}
+
+func TestAPIMiddlewareRejectsInvalidatedSession(t *testing.T) {
+	h := setupAuthHandler(t)
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	})
+	handler := h.apiMiddleware(inner)
+
+	// Create session in DB, then delete it
+	sessionID := "revoked-api-session"
+	h.DB.CreateSession(sessionID, "Bob", "bob@test.com")
+	h.DB.DeleteSession(sessionID)
+
+	val, _ := auth.SignSession(h.Auth.SessionSecret, auth.User{
+		Name: "Bob", Email: "bob@test.com", SessionID: sessionID,
+	})
+
+	req := httptest.NewRequest("GET", "/api/projects", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: val})
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestWebMiddlewareAcceptsValidServerSession(t *testing.T) {
+	h := setupAuthHandler(t)
+	var gotName string
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotName, _ = auth.GetUserFromContext(r.Context())
+		w.WriteHeader(200)
+	})
+	handler := h.webMiddleware(inner)
+
+	sessionID := "valid-session"
+	h.DB.CreateSession(sessionID, "Alice", "alice@test.com")
+
+	val, _ := auth.SignSession(h.Auth.SessionSecret, auth.User{
+		Name: "Alice", Email: "alice@test.com", SessionID: sessionID,
+	})
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: val})
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if gotName != "Alice" {
+		t.Errorf("got name=%q, want Alice", gotName)
+	}
+}
+
+func TestAPIMiddlewareAcceptsValidServerSession(t *testing.T) {
+	h := setupAuthHandler(t)
+	var gotEmail string
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, gotEmail = auth.GetUserFromContext(r.Context())
+		w.WriteHeader(200)
+	})
+	handler := h.apiMiddleware(inner)
+
+	sessionID := "valid-api-session"
+	h.DB.CreateSession(sessionID, "Bob", "bob@test.com")
+
+	val, _ := auth.SignSession(h.Auth.SessionSecret, auth.User{
+		Name: "Bob", Email: "bob@test.com", SessionID: sessionID,
+	})
+
+	req := httptest.NewRequest("GET", "/api/projects", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: val})
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if gotEmail != "bob@test.com" {
+		t.Errorf("got email=%q, want bob@test.com", gotEmail)
+	}
+}

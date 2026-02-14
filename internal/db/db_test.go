@@ -1003,3 +1003,68 @@ func TestGetCommentClosedDB(t *testing.T) {
 		t.Error("expected error")
 	}
 }
+
+// --- Phase 24: Server-side Sessions ---
+
+func TestCreateSessionAndGet(t *testing.T) {
+	d := newTestDB(t)
+	if err := d.CreateSession("sid1", "Alice", "alice@test.com"); err != nil {
+		t.Fatal(err)
+	}
+	name, email, err := d.GetSession("sid1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "Alice" || email != "alice@test.com" {
+		t.Errorf("got name=%q email=%q", name, email)
+	}
+}
+
+func TestGetSessionNotFound(t *testing.T) {
+	d := newTestDB(t)
+	_, _, err := d.GetSession("nonexistent")
+	if err == nil {
+		t.Error("expected error for nonexistent session")
+	}
+}
+
+func TestDeleteSession(t *testing.T) {
+	d := newTestDB(t)
+	d.CreateSession("sid2", "Bob", "bob@test.com")
+	if err := d.DeleteSession("sid2"); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := d.GetSession("sid2")
+	if err == nil {
+		t.Error("expected error after deletion")
+	}
+}
+
+func TestDeleteSessionNonexistent(t *testing.T) {
+	d := newTestDB(t)
+	if err := d.DeleteSession("nonexistent"); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCreateSessionClosedDB(t *testing.T) {
+	d := closedDB(t)
+	if err := d.CreateSession("x", "n", "e"); err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestGetSessionClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, _, err := d.GetSession("x")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestDeleteSessionClosedDB(t *testing.T) {
+	d := closedDB(t)
+	if err := d.DeleteSession("x"); err == nil {
+		t.Error("expected error")
+	}
+}
