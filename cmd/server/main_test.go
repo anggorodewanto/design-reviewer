@@ -33,6 +33,23 @@ func TestSecurityHeaders(t *testing.T) {
 	}
 }
 
+func TestSecurityHeadersDesignsNoFrameOptions(t *testing.T) {
+	handler := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/designs/some-version/index.html", nil)
+	handler.ServeHTTP(rr, req)
+
+	if got := rr.Header().Get("X-Frame-Options"); got != "" {
+		t.Errorf("X-Frame-Options on /designs/ path: got %q, want empty", got)
+	}
+	if got := rr.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options: got %q, want nosniff", got)
+	}
+}
+
 func TestSecurityHeadersPreserveInnerHandler(t *testing.T) {
 	handler := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Custom", "test")

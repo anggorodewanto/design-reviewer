@@ -20,6 +20,50 @@ document.addEventListener("DOMContentLoaded", function () {
         } catch (e) {}
     }
     frame.addEventListener("load", resizeFrame);
+    frame.addEventListener("load", function () {
+        try {
+            var doc = frame.contentDocument || frame.contentWindow.document;
+            var overlay = document.getElementById("pin-overlay");
+            if (!overlay) return;
+
+            var tooltip = document.createElement("div");
+            tooltip.className = "dr-link-tooltip";
+            overlay.appendChild(tooltip);
+
+            overlay.addEventListener("mousemove", function (e) {
+                var iframeRect = frame.getBoundingClientRect();
+                try { var el = doc.elementFromPoint(e.clientX - iframeRect.left, e.clientY - iframeRect.top); } catch(ex) { return; }
+                var link = el && el.closest("[data-dr-link]");
+                if (link) {
+                    tooltip.textContent = "Ctrl+Click → " + link.getAttribute("data-dr-link");
+                    tooltip.style.left = (e.clientX - overlay.getBoundingClientRect().left + 16) + "px";
+                    tooltip.style.top = (e.clientY - overlay.getBoundingClientRect().top - 10) + "px";
+                    tooltip.style.display = "block";
+                } else {
+                    tooltip.style.display = "none";
+                }
+            });
+            overlay.addEventListener("mouseleave", function () {
+                tooltip.style.display = "none";
+            });
+
+            overlay.addEventListener("click", function (e) {
+                if (!e.ctrlKey && !e.metaKey) return;
+                var iframeRect = frame.getBoundingClientRect();
+                var x = e.clientX - iframeRect.left;
+                var y = e.clientY - iframeRect.top;
+                var el = doc.elementFromPoint(x, y);
+                if (!el) return;
+                var link = el.closest("[data-dr-link]");
+                if (!link) return;
+                e.preventDefault();
+                e.stopPropagation();
+                var target = link.getAttribute("data-dr-link");
+                var tab = tabs && tabs.querySelector('[data-page="' + target + '"]');
+                if (tab) tab.click();
+            });
+        } catch (e) {}
+    });
     window.addEventListener("resize", resizeFrame);
 
     // Fetch and render version list in sidebar
@@ -55,25 +99,33 @@ document.addEventListener("DOMContentLoaded", function () {
         // Update page tabs
         var defaultPage = pages.indexOf("index.html") >= 0 ? "index.html" : (pages[0] || "");
         if (tabs) {
-            if (pages.length > 1) {
-                tabs.innerHTML = "";
-                pages.forEach(function (p) {
-                    var btn = document.createElement("button");
-                    btn.className = "page-tab" + (p === defaultPage ? " active" : "");
-                    btn.dataset.page = p;
-                    btn.textContent = p;
-                    tabs.appendChild(btn);
-                });
-                tabs.style.display = "";
-            } else {
-                tabs.innerHTML = "";
-                tabs.style.display = "none";
-            }
+            tabs.innerHTML = "";
+            var flowBtn = document.createElement("button");
+            flowBtn.className = "page-tab";
+            flowBtn.dataset.page = "__flow__";
+            flowBtn.textContent = "Flow";
+            tabs.appendChild(flowBtn);
+            pages.forEach(function (p) {
+                var btn = document.createElement("button");
+                btn.className = "page-tab" + (p === defaultPage ? " active" : "");
+                btn.dataset.page = p;
+                btn.textContent = p;
+                tabs.appendChild(btn);
+            });
         }
+
+        // Show iframe, hide flow graph
+        var flowContainer = document.getElementById("flow-graph");
+        var iframeWrapper = document.querySelector(".iframe-wrapper");
+        if (flowContainer) flowContainer.style.display = "none";
+        if (iframeWrapper) iframeWrapper.style.display = "";
 
         // Update iframe
         frame.src = "/designs/" + versionID + "/" + defaultPage;
         frame.parentElement.scrollTop = 0;
+
+        // Reset flow graph for new version
+        if (window.resetFlowGraph) window.resetFlowGraph();
 
         // Update URL
         history.replaceState(null, "", "/projects/" + projectID + "?version=" + versionID);
@@ -89,10 +141,31 @@ document.addEventListener("DOMContentLoaded", function () {
         tabs.addEventListener("click", function (e) {
             var btn = e.target.closest(".page-tab");
             if (!btn) return;
-            tabs.querySelector(".active").classList.remove("active");
+            var active = tabs.querySelector(".active");
+            if (active) active.classList.remove("active");
             btn.classList.add("active");
-            frame.src = "/designs/" + currentVersionID + "/" + btn.dataset.page;
-            frame.parentElement.scrollTop = 0;
+
+            var page = btn.dataset.page;
+            var flowContainer = document.getElementById("flow-graph");
+            var iframeWrapper = document.querySelector(".iframe-wrapper");
+
+            if (page === "__flow__") {
+                if (iframeWrapper) iframeWrapper.style.display = "none";
+                if (flowContainer) flowContainer.style.display = "block";
+                if (window.initFlowGraph) {
+                    window.initFlowGraph(currentVersionID, function (nodeId) {
+                        // Click node → switch to that page tab
+                        var pageBtn = tabs.querySelector('[data-page="' + nodeId + '"]');
+                        if (pageBtn) pageBtn.click();
+                    });
+                }
+            } else {
+                if (flowContainer) flowContainer.style.display = "none";
+                if (iframeWrapper) iframeWrapper.style.display = "";
+                frame.src = "/designs/" + currentVersionID + "/" + page;
+                frame.parentElement.scrollTop = 0;
+                if (window.setFlowActiveNode) window.setFlowActiveNode(page);
+            }
         });
     }
 

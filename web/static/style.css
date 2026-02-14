@@ -623,3 +623,25 @@ tr:hover td { background: rgba(167,139,250,.04); }
 }
 
 
+
+/* --- Flow Graph --- */
+
+.dr-link-tooltip {
+    display: none;
+    position: absolute;
+    background: var(--surface);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 20;
+}
+
+#flow-graph {
+    display: none;
+    flex: 1;
+    min-height: 0;
+}

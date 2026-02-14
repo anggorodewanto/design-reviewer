@@ -6,3 +6,6 @@ coverage_combined.out
 design-reviewer-server
 test-mockup/
 .kiro/
+design-reviewer-cli
+design-reviewer-server
+server.log

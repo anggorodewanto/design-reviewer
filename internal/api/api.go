@@ -112,6 +112,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	apiToggleResolve := http.HandlerFunc(h.handleToggleResolve)
 	apiMoveComment := http.HandlerFunc(h.handleMoveComment)
 
+	// Flow API handler
+	apiGetFlow := http.HandlerFunc(h.handleGetFlow)
+
 	// Sharing API handlers
 	apiCreateInvite := http.HandlerFunc(h.handleCreateInvite)
 	apiDeleteInvite := http.HandlerFunc(h.handleDeleteInvite)
@@ -128,6 +131,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 		mux.Handle("POST /api/comments/{id}/replies", h.apiMiddleware(h.commentAccess(apiCreateReply)))
 		mux.Handle("PATCH /api/comments/{id}/resolve", h.apiMiddleware(h.commentAccess(apiToggleResolve)))
 		mux.Handle("PATCH /api/comments/{id}/move", h.apiMiddleware(h.commentAccess(apiMoveComment)))
+		mux.Handle("GET /api/versions/{id}/flow", h.apiMiddleware(h.versionAccess(apiGetFlow)))
 		// Sharing routes
 		mux.Handle("POST /api/projects/{id}/invites", h.apiMiddleware(h.ownerOnly(apiCreateInvite)))
 		mux.Handle("DELETE /api/projects/{id}/invites/{inviteID}", h.apiMiddleware(h.ownerOnly(apiDeleteInvite)))
@@ -143,6 +147,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 		mux.Handle("POST /api/comments/{id}/replies", apiCreateReply)
 		mux.Handle("PATCH /api/comments/{id}/resolve", apiToggleResolve)
 		mux.Handle("PATCH /api/comments/{id}/move", apiMoveComment)
+		mux.Handle("GET /api/versions/{id}/flow", apiGetFlow)
 		mux.Handle("POST /api/projects/{id}/invites", apiCreateInvite)
 		mux.Handle("DELETE /api/projects/{id}/invites/{inviteID}", apiDeleteInvite)
 		mux.Handle("GET /api/projects/{id}/members", apiListMembers)

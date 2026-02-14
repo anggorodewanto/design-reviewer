@@ -192,7 +192,7 @@ type RateLimiter struct {
 func NewRateLimiter() *RateLimiter {
 	return &RateLimiter{
 		generalRate:  rate.Every(time.Second),     // 1 req/s ≈ 60/min
-		generalBurst: 10,
+		generalBurst: 30,
 		strictRate:   rate.Every(6 * time.Second), // ~10/min
 		strictBurst:  5,
 	}

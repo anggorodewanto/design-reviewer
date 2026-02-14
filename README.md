@@ -9,6 +9,7 @@ A collaborative tool for reviewing UI/UX design mockups. Designers push HTML+CSS
 - Push HTML/CSS design mockups from the command line
 - View rendered designs in the browser with version history
 - Pin comments on specific coordinates of a design
+- Interactive flow graph showing page connections
 - Google OAuth authentication
 - Status workflow for review tracking
 
@@ -123,6 +124,49 @@ Each `.html` file becomes a reviewable page in the viewer. You can scaffold a st
 ```bash
 ./design-reviewer init ./my-mockup
 ```
+
+## Flow Graph
+
+The viewer includes a "Flow" tab that visualizes how pages connect to each other as an interactive directed graph.
+
+### Defining flows
+
+There are two ways to declare page connections:
+
+**1. `data-dr-link` HTML attribute** — annotate any element to declare a link to another page:
+
+```html
+<a href="#" data-dr-link="login.html">Sign In</a>
+<button data-dr-link="dashboard.html">Continue</button>
+```
+
+**2. `flow.yaml` file** — place in your mockup directory alongside HTML files:
+
+```yaml
+flows:
+  index.html:
+    - target: login.html
+      label: "Sign In"
+    - target: signup.html
+      label: "Register"
+  login.html:
+    - target: dashboard.html
+      label: "Success"
+```
+
+Both sources are merged automatically. If the same connection is defined in both, the YAML definition takes precedence.
+
+### Graph features
+
+- Nodes are labeled with page filenames; click a node to navigate to that page
+- YAML-defined edges render as solid lines, HTML-extracted edges as dashed lines
+- Pages referenced but not uploaded show as missing nodes (red dashed border)
+- Dagre top-to-bottom layout when edges exist, grid layout when pages are disconnected
+- Zoom and pan built in
+
+### Ctrl+Click navigation
+
+When viewing a design page, Ctrl+Click (Cmd+Click on Mac) on any element with a `data-dr-link` attribute to jump directly to the linked page. A tooltip appears on hover showing the link target.
 
 ## CLI Commands
 

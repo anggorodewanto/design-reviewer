@@ -29,13 +29,13 @@
             </div>
         </aside>
         <main class="viewer-main">
-            {{if gt (len .Pages) 1}}
             <div class="page-tabs" id="page-tabs">
+                <button class="page-tab" data-page="__flow__">Flow</button>
                 {{range .Pages}}
                 <button class="page-tab{{if eq . $.DefaultPage}} active{{end}}" data-page="{{.}}">{{.}}</button>
                 {{end}}
             </div>
-            {{end}}
+            <div id="flow-graph"></div>
             <div class="iframe-wrapper">
                 <div class="design-container">
                     <div class="design-frame">
@@ -83,6 +83,10 @@
     window.authUser = {{if .UserName}}{name: "{{.UserName}}"}{{else}}null{{end}};
     window.isOwner = {{.IsOwner}};
 </script>
+<script src="/static/vendor/cytoscape.min.js"></script>
+<script src="/static/vendor/dagre.min.js"></script>
+<script src="/static/vendor/cytoscape-dagre.min.js"></script>
+<script src="/static/flow.js"></script>
 <script src="/static/viewer.js"></script>
 <script src="/static/annotations.js"></script>
 <script src="/static/sharing.js"></script>

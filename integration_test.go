@@ -502,8 +502,13 @@ func TestViewerSinglePageNoTabs(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
-	if strings.Contains(string(b), "page-tabs") {
-		t.Error("should not show page tabs for single-page project")
+	body := string(b)
+	// Page tabs always shown now (Flow tab is always present)
+	if !strings.Contains(body, "page-tabs") {
+		t.Error("should show page tabs (Flow tab always present)")
+	}
+	if !strings.Contains(body, `data-page="__flow__"`) {
+		t.Error("should contain Flow tab")
 	}
 }
 
@@ -3374,5 +3379,292 @@ func TestInviteNullExpiryRejected(t *testing.T) {
 	resp2.Body.Close()
 	if resp2.StatusCode == 302 {
 		t.Error("NULL-expiry invite should not redirect to project")
+	}
+}
+
+// --- Phase 35: Flow Definition & Parsing ---
+
+func TestFlowEndpoint_YAMLOnly(t *testing.T) {
+	env := setup(t)
+	flowYAML := `title: "Onboarding"
+flows:
+  index.html:
+    - target: login.html
+      label: "Sign In"
+`
+	z := makeZip(t, map[string]string{
+		"index.html": "<html><body>Home</body></html>",
+		"login.html": "<html><body>Login</body></html>",
+		"flow.yaml":  flowYAML,
+	})
+	res := uploadZip(t, env.Server.URL, "flow-yaml-test", z)
+	versionID := res["version_id"].(string)
+
+	resp, err := http.Get(env.Server.URL + "/api/versions/" + versionID + "/flow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	var graph map[string]any
+	json.NewDecoder(resp.Body).Decode(&graph)
+	if graph["title"] != "Onboarding" {
+		t.Errorf("title = %v", graph["title"])
+	}
+	edges := graph["edges"].([]any)
+	if len(edges) != 1 {
+		t.Fatalf("edges = %d, want 1", len(edges))
+	}
+	e := edges[0].(map[string]any)
+	if e["origin"] != "yaml" || e["target"] != "login.html" {
+		t.Errorf("edge = %v", e)
+	}
+}
+
+func TestFlowEndpoint_HTMLLinksOnly(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{
+		"index.html": `<html><body><a data-dr-link="about.html">About</a></body></html>`,
+		"about.html": "<html><body>About</body></html>",
+	})
+	res := uploadZip(t, env.Server.URL, "flow-html-test", z)
+	versionID := res["version_id"].(string)
+
+	resp, _ := http.Get(env.Server.URL + "/api/versions/" + versionID + "/flow")
+	defer resp.Body.Close()
+
+	var graph map[string]any
+	json.NewDecoder(resp.Body).Decode(&graph)
+	edges := graph["edges"].([]any)
+	if len(edges) != 1 {
+		t.Fatalf("edges = %d, want 1", len(edges))
+	}
+	e := edges[0].(map[string]any)
+	if e["origin"] != "html" || e["label"] != "About" {
+		t.Errorf("edge = %v", e)
+	}
+}
+
+func TestFlowEndpoint_MergedDeduplicated(t *testing.T) {
+	env := setup(t)
+	flowYAML := `title: "Merged"
+flows:
+  index.html:
+    - target: login.html
+      label: "YAML Label"
+`
+	z := makeZip(t, map[string]string{
+		"index.html": `<html><body><a data-dr-link="login.html">HTML Label</a></body></html>`,
+		"login.html": "<html><body>Login</body></html>",
+		"flow.yaml":  flowYAML,
+	})
+	res := uploadZip(t, env.Server.URL, "flow-merge-test", z)
+	versionID := res["version_id"].(string)
+
+	resp, _ := http.Get(env.Server.URL + "/api/versions/" + versionID + "/flow")
+	defer resp.Body.Close()
+
+	var graph map[string]any
+	json.NewDecoder(resp.Body).Decode(&graph)
+	edges := graph["edges"].([]any)
+	if len(edges) != 1 {
+		t.Fatalf("edges = %d, want 1 (deduped)", len(edges))
+	}
+	e := edges[0].(map[string]any)
+	if e["origin"] != "yaml" || e["label"] != "YAML Label" {
+		t.Errorf("expected YAML precedence, got %v", e)
+	}
+}
+
+func TestFlowEndpoint_NoFlowNoLinks(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{
+		"index.html": "<html><body>Home</body></html>",
+		"about.html": "<html><body>About</body></html>",
+	})
+	res := uploadZip(t, env.Server.URL, "flow-none-test", z)
+	versionID := res["version_id"].(string)
+
+	resp, _ := http.Get(env.Server.URL + "/api/versions/" + versionID + "/flow")
+	defer resp.Body.Close()
+
+	var graph map[string]any
+	json.NewDecoder(resp.Body).Decode(&graph)
+	nodes := graph["nodes"].([]any)
+	edges := graph["edges"].([]any)
+	if len(nodes) != 2 {
+		t.Errorf("nodes = %d, want 2", len(nodes))
+	}
+	if len(edges) != 0 {
+		t.Errorf("edges = %d, want 0", len(edges))
+	}
+}
+
+func TestFlowEndpoint_MissingTarget(t *testing.T) {
+	env := setup(t)
+	flowYAML := `flows:
+  index.html:
+    - target: ghost.html
+      label: "Ghost"
+`
+	z := makeZip(t, map[string]string{
+		"index.html": "<html><body>Home</body></html>",
+		"flow.yaml":  flowYAML,
+	})
+	res := uploadZip(t, env.Server.URL, "flow-missing-test", z)
+	versionID := res["version_id"].(string)
+
+	resp, _ := http.Get(env.Server.URL + "/api/versions/" + versionID + "/flow")
+	defer resp.Body.Close()
+
+	var graph map[string]any
+	json.NewDecoder(resp.Body).Decode(&graph)
+	nodes := graph["nodes"].([]any)
+	for _, n := range nodes {
+		node := n.(map[string]any)
+		if node["id"] == "ghost.html" {
+			if node["missing"] != true {
+				t.Errorf("ghost.html should be missing=true, got %v", node["missing"])
+			}
+			return
+		}
+	}
+	t.Error("ghost.html node not found")
+}
+
+func TestFlowEndpoint_MalformedYAML(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{
+		"index.html": "<html><body>Home</body></html>",
+		"flow.yaml":  "{{bad yaml",
+	})
+	res := uploadZip(t, env.Server.URL, "flow-bad-yaml", z)
+	versionID := res["version_id"].(string)
+
+	resp, _ := http.Get(env.Server.URL + "/api/versions/" + versionID + "/flow")
+	resp.Body.Close()
+	if resp.StatusCode != 400 {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+// --- Phase 36: Flow Graph Visualization ---
+
+func TestViewerHasFlowTab(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{
+		"index.html": "<h1>Home</h1>",
+		"about.html": "<h1>About</h1>",
+	})
+	res := uploadZip(t, env.Server.URL, "flow-tab-test", z)
+	pid := res["project_id"].(string)
+
+	resp, err := http.Get(env.Server.URL + "/projects/" + pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+
+	if !strings.Contains(body, `data-page="__flow__"`) {
+		t.Error("viewer should contain Flow tab")
+	}
+	if !strings.Contains(body, `id="flow-graph"`) {
+		t.Error("viewer should contain flow-graph container")
+	}
+}
+
+func TestViewerHasFlowVendorScripts(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "<h1>Home</h1>"})
+	res := uploadZip(t, env.Server.URL, "flow-vendor-test", z)
+	pid := res["project_id"].(string)
+
+	resp, err := http.Get(env.Server.URL + "/projects/" + pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+
+	for _, script := range []string{"cytoscape.min.js", "dagre.min.js", "cytoscape-dagre.min.js", "flow.js"} {
+		if !strings.Contains(body, script) {
+			t.Errorf("viewer should include %s script", script)
+		}
+	}
+}
+
+func TestFlowVendorFilesServed(t *testing.T) {
+	env := setup(t)
+	for _, path := range []string{
+		"/static/vendor/cytoscape.min.js",
+		"/static/vendor/dagre.min.js",
+		"/static/vendor/cytoscape-dagre.min.js",
+		"/static/flow.js",
+	} {
+		resp, err := http.Get(env.Server.URL + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			t.Errorf("GET %s: status = %d, want 200", path, resp.StatusCode)
+		}
+	}
+}
+
+func TestFlowAPIReturnsDataForGraphRendering(t *testing.T) {
+	env := setup(t)
+	flowYAML := `title: "Test Flow"
+flows:
+  index.html:
+    - target: page2.html
+      label: "Next"
+`
+	z := makeZip(t, map[string]string{
+		"index.html": `<html><body><a data-dr-link="page3.html">Link</a></body></html>`,
+		"page2.html": "<html><body>Page 2</body></html>",
+		"flow.yaml":  flowYAML,
+	})
+	res := uploadZip(t, env.Server.URL, "flow-graph-data", z)
+	versionID := res["version_id"].(string)
+
+	resp, _ := http.Get(env.Server.URL + "/api/versions/" + versionID + "/flow")
+	defer resp.Body.Close()
+
+	var graph map[string]any
+	json.NewDecoder(resp.Body).Decode(&graph)
+
+	nodes := graph["nodes"].([]any)
+	if len(nodes) != 3 {
+		t.Errorf("nodes = %d, want 3 (index.html, page2.html, page3.html)", len(nodes))
+	}
+
+	edges := graph["edges"].([]any)
+	if len(edges) != 2 {
+		t.Errorf("edges = %d, want 2", len(edges))
+	}
+
+	// Verify edge origins for graph styling (yaml=solid, html=dashed)
+	origins := map[string]bool{}
+	for _, e := range edges {
+		edge := e.(map[string]any)
+		origins[edge["origin"].(string)] = true
+	}
+	if !origins["yaml"] || !origins["html"] {
+		t.Errorf("expected both yaml and html origins, got %v", origins)
+	}
+
+	// Verify missing node for page3.html (referenced but not uploaded)
+	for _, n := range nodes {
+		node := n.(map[string]any)
+		if node["id"] == "page3.html" && node["missing"] != true {
+			t.Error("page3.html should be missing=true")
+		}
 	}
 }

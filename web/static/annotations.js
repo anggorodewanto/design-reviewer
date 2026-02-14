@@ -103,6 +103,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // Click overlay to create new pin
     overlay.addEventListener("click", function (e) {
+        if (e.ctrlKey || e.metaKey) return;
         var rect = overlay.getBoundingClientRect();
         var xPct = ((e.clientX - rect.left) / rect.width) * 100;
         var yPct = ((e.clientY - rect.top) / rect.height) * 100;
