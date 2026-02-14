@@ -388,6 +388,16 @@ func (d *DB) GetUnresolvedCommentsUpTo(versionID string) ([]Comment, error) {
 	return comments, rows.Err()
 }
 
+func (d *DB) GetComment(id string) (*Comment, error) {
+	c := &Comment{}
+	err := d.QueryRow(`SELECT id, version_id, page, x_percent, y_percent, author_name, author_email, body, resolved, created_at FROM comments WHERE id = ?`, id).
+		Scan(&c.ID, &c.VersionID, &c.Page, &c.XPercent, &c.YPercent, &c.AuthorName, &c.AuthorEmail, &c.Body, &c.Resolved, &c.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
 func (d *DB) MoveComment(id string, x, y float64) error {
 	_, err := d.Exec("UPDATE comments SET x_percent=?, y_percent=? WHERE id=?", x, y, id)
 	return err

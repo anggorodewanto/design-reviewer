@@ -105,6 +105,33 @@ func (h *Handler) versionAccess(next http.Handler) http.Handler {
 	})
 }
 
+// commentAccess checks access via comment_id → version → project lookup.
+func (h *Handler) commentAccess(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, email := auth.GetUserFromContext(r.Context())
+		if email == "" {
+			http.NotFound(w, r)
+			return
+		}
+		c, err := h.DB.GetComment(r.PathValue("id"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		v, err := h.DB.GetVersion(c.VersionID)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		ok, err := h.DB.CanAccessProject(v.ProjectID, email)
+		if err != nil || !ok {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // ownerOnly checks that the authenticated user is the project owner.
 func (h *Handler) ownerOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

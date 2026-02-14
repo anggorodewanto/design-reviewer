@@ -2412,3 +2412,112 @@ func TestStyleCSSContainsDragStyles(t *testing.T) {
 		}
 	}
 }
+
+// --- Phase 21: IDOR — Comment Endpoints Lack Project Access Checks ---
+
+func TestCommentAccessBlocksNonMember(t *testing.T) {
+	env, aliceSession := setupWithAuthUser(t, "Alice", "alice@test.com")
+	env.DB.CreateToken("tok", "Alice", "alice@test.com")
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := authUpload(t, env.Server.URL, "idor-proj", "tok", z)
+	pid := res["project_id"].(string)
+	vid := res["version_id"].(string)
+
+	// Alice creates a comment
+	cBody := `{"page":"index.html","x_percent":10,"y_percent":20,"body":"secret"}`
+	req, _ := http.NewRequest("POST", env.Server.URL+"/api/versions/"+vid+"/comments", strings.NewReader(cBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: "session", Value: aliceSession})
+	resp, _ := (&http.Client{}).Do(req)
+	var comment map[string]any
+	json.NewDecoder(resp.Body).Decode(&comment)
+	resp.Body.Close()
+	cid := comment["id"].(string)
+	_ = pid
+
+	// Bob (non-member) tries reply, resolve, move — all should 404
+	bobSession, _ := authpkg.SignSession("test-secret", authpkg.User{Name: "Bob", Email: "bob@test.com"})
+	endpoints := []struct {
+		method, path, body string
+	}{
+		{"POST", "/api/comments/" + cid + "/replies", `{"body":"hacked"}`},
+		{"PATCH", "/api/comments/" + cid + "/resolve", ""},
+		{"PATCH", "/api/comments/" + cid + "/move", `{"x_percent":50,"y_percent":50}`},
+	}
+	for _, ep := range endpoints {
+		var bodyReader io.Reader
+		if ep.body != "" {
+			bodyReader = strings.NewReader(ep.body)
+		}
+		req, _ := http.NewRequest(ep.method, env.Server.URL+ep.path, bodyReader)
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(&http.Cookie{Name: "session", Value: bobSession})
+		resp, err := (&http.Client{}).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 404 {
+			t.Errorf("%s %s: expected 404, got %d", ep.method, ep.path, resp.StatusCode)
+		}
+	}
+}
+
+func TestCommentAccessAllowsMember(t *testing.T) {
+	env, aliceSession := setupWithAuthUser(t, "Alice", "alice@test.com")
+	env.DB.CreateToken("tok", "Alice", "alice@test.com")
+	z := makeZip(t, map[string]string{"index.html": "x"})
+	res := authUpload(t, env.Server.URL, "member-proj", "tok", z)
+	vid := res["version_id"].(string)
+
+	// Alice creates a comment
+	cBody := `{"page":"index.html","x_percent":10,"y_percent":20,"body":"test"}`
+	req, _ := http.NewRequest("POST", env.Server.URL+"/api/versions/"+vid+"/comments", strings.NewReader(cBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: "session", Value: aliceSession})
+	resp, _ := (&http.Client{}).Do(req)
+	var comment map[string]any
+	json.NewDecoder(resp.Body).Decode(&comment)
+	resp.Body.Close()
+	cid := comment["id"].(string)
+
+	// Alice (owner) can reply
+	replyBody := `{"body":"my reply"}`
+	req2, _ := http.NewRequest("POST", env.Server.URL+"/api/comments/"+cid+"/replies", strings.NewReader(replyBody))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.AddCookie(&http.Cookie{Name: "session", Value: aliceSession})
+	resp2, err := (&http.Client{}).Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != 201 {
+		t.Errorf("reply: expected 201, got %d", resp2.StatusCode)
+	}
+
+	// Alice can resolve
+	req3, _ := http.NewRequest("PATCH", env.Server.URL+"/api/comments/"+cid+"/resolve", nil)
+	req3.AddCookie(&http.Cookie{Name: "session", Value: aliceSession})
+	resp3, err := (&http.Client{}).Do(req3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp3.Body.Close()
+	if resp3.StatusCode != 200 {
+		t.Errorf("resolve: expected 200, got %d", resp3.StatusCode)
+	}
+
+	// Alice can move
+	moveBody := `{"x_percent":50,"y_percent":50}`
+	req4, _ := http.NewRequest("PATCH", env.Server.URL+"/api/comments/"+cid+"/move", strings.NewReader(moveBody))
+	req4.Header.Set("Content-Type", "application/json")
+	req4.AddCookie(&http.Cookie{Name: "session", Value: aliceSession})
+	resp4, err := (&http.Client{}).Do(req4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp4.Body.Close()
+	if resp4.StatusCode != 200 {
+		t.Errorf("move: expected 200, got %d", resp4.StatusCode)
+	}
+}

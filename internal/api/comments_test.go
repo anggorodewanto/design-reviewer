@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ab/design-reviewer/internal/auth"
 	"github.com/ab/design-reviewer/internal/db"
 )
 
@@ -43,6 +44,7 @@ type mockDB struct {
 	removeMemberErr            error
 	listProjectsForUserErr     error
 	moveCommentErr             error
+	getCommentErr              error
 }
 
 func (m *mockDB) GetUnresolvedCommentsUpTo(versionID string) ([]db.Comment, error) {
@@ -231,6 +233,13 @@ func (m *mockDB) MoveComment(id string, x, y float64) error {
 		return m.moveCommentErr
 	}
 	return m.DataStore.MoveComment(id, x, y)
+}
+
+func (m *mockDB) GetComment(id string) (*db.Comment, error) {
+	if m.getCommentErr != nil {
+		return nil, m.getCommentErr
+	}
+	return m.DataStore.GetComment(id)
 }
 
 var errDB = errors.New("db failure")
@@ -747,5 +756,83 @@ func TestMoveCommentErrDB(t *testing.T) {
 	h.handleMoveComment(w, req)
 	if w.Code != 500 {
 		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+// --- Phase 21: commentAccess middleware ---
+
+func TestCommentAccessNoEmail(t *testing.T) {
+	h := setupTestHandler(t)
+	called := false
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true })
+	req := httptest.NewRequest("POST", "/api/comments/x/replies", nil)
+	req.SetPathValue("id", "x")
+	w := httptest.NewRecorder()
+	h.commentAccess(inner).ServeHTTP(w, req)
+	if w.Code != 404 || called {
+		t.Errorf("expected 404 and inner not called, got %d called=%v", w.Code, called)
+	}
+}
+
+func TestCommentAccessInvalidComment(t *testing.T) {
+	h := setupTestHandler(t)
+	called := false
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true })
+	req := httptest.NewRequest("POST", "/api/comments/nonexistent/replies", nil)
+	req.SetPathValue("id", "nonexistent")
+	ctx := auth.SetUserInContext(req.Context(), "Alice", "alice@test.com")
+	w := httptest.NewRecorder()
+	h.commentAccess(inner).ServeHTTP(w, req.WithContext(ctx))
+	if w.Code != 404 || called {
+		t.Errorf("expected 404, got %d called=%v", w.Code, called)
+	}
+}
+
+func TestCommentAccessNoProjectAccess(t *testing.T) {
+	h := setupTestHandler(t)
+	p, _ := h.DB.CreateProject("priv", "owner@test.com")
+	v, _ := h.DB.CreateVersion(p.ID, "/tmp/v")
+	c, _ := h.DB.CreateComment(v.ID, "index.html", 10, 20, "A", "a@t.com", "hi")
+
+	called := false
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true })
+	req := httptest.NewRequest("POST", "/api/comments/"+c.ID+"/replies", nil)
+	req.SetPathValue("id", c.ID)
+	ctx := auth.SetUserInContext(req.Context(), "Stranger", "stranger@test.com")
+	w := httptest.NewRecorder()
+	h.commentAccess(inner).ServeHTTP(w, req.WithContext(ctx))
+	if w.Code != 404 || called {
+		t.Errorf("expected 404, got %d called=%v", w.Code, called)
+	}
+}
+
+func TestCommentAccessGranted(t *testing.T) {
+	h := setupTestHandler(t)
+	p, _ := h.DB.CreateProject("pub", "")
+	v, _ := h.DB.CreateVersion(p.ID, "/tmp/v")
+	c, _ := h.DB.CreateComment(v.ID, "index.html", 10, 20, "A", "a@t.com", "hi")
+
+	called := false
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true; w.WriteHeader(200) })
+	req := httptest.NewRequest("POST", "/api/comments/"+c.ID+"/replies", nil)
+	req.SetPathValue("id", c.ID)
+	ctx := auth.SetUserInContext(req.Context(), "Alice", "alice@test.com")
+	w := httptest.NewRecorder()
+	h.commentAccess(inner).ServeHTTP(w, req.WithContext(ctx))
+	if w.Code != 200 || !called {
+		t.Errorf("expected 200 and inner called, got %d called=%v", w.Code, called)
+	}
+}
+
+func TestCommentAccessGetCommentDBError(t *testing.T) {
+	h := mockHandler(t, func(m *mockDB) { m.getCommentErr = errDB })
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Error("should not be called") })
+	req := httptest.NewRequest("POST", "/api/comments/x/replies", nil)
+	req.SetPathValue("id", "x")
+	ctx := auth.SetUserInContext(req.Context(), "A", "a@t.com")
+	w := httptest.NewRecorder()
+	h.commentAccess(inner).ServeHTTP(w, req.WithContext(ctx))
+	if w.Code != 404 {
+		t.Errorf("expected 404, got %d", w.Code)
 	}
 }

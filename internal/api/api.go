@@ -23,6 +23,7 @@ type DataStore interface {
 	CreateComment(versionID, page string, xPct, yPct float64, authorName, authorEmail, body string) (*db.Comment, error)
 	GetCommentsForVersion(versionID string) ([]db.Comment, error)
 	GetUnresolvedCommentsUpTo(versionID string) ([]db.Comment, error)
+	GetComment(id string) (*db.Comment, error)
 	ToggleResolve(commentID string) (bool, error)
 	MoveComment(id string, x, y float64) error
 	CreateReply(commentID, authorName, authorEmail, body string) (*db.Reply, error)
@@ -106,9 +107,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 		mux.Handle("PATCH /api/projects/{id}/status", h.apiMiddleware(h.ownerOnly(apiUpdateStatus)))
 		mux.Handle("GET /api/versions/{id}/comments", h.apiMiddleware(h.versionAccess(apiGetComments)))
 		mux.Handle("POST /api/versions/{id}/comments", h.apiMiddleware(h.versionAccess(apiCreateComment)))
-		mux.Handle("POST /api/comments/{id}/replies", h.apiMiddleware(apiCreateReply))
-		mux.Handle("PATCH /api/comments/{id}/resolve", h.apiMiddleware(apiToggleResolve))
-		mux.Handle("PATCH /api/comments/{id}/move", h.apiMiddleware(apiMoveComment))
+		mux.Handle("POST /api/comments/{id}/replies", h.apiMiddleware(h.commentAccess(apiCreateReply)))
+		mux.Handle("PATCH /api/comments/{id}/resolve", h.apiMiddleware(h.commentAccess(apiToggleResolve)))
+		mux.Handle("PATCH /api/comments/{id}/move", h.apiMiddleware(h.commentAccess(apiMoveComment)))
 		// Sharing routes
 		mux.Handle("POST /api/projects/{id}/invites", h.apiMiddleware(h.ownerOnly(apiCreateInvite)))
 		mux.Handle("DELETE /api/projects/{id}/invites/{inviteID}", h.apiMiddleware(h.ownerOnly(apiDeleteInvite)))

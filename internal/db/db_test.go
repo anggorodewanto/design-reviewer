@@ -967,3 +967,39 @@ func TestMoveCommentClosedDB(t *testing.T) {
 		t.Error("expected error")
 	}
 }
+
+// --- Phase 21: GetComment ---
+
+func TestGetComment(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("gc", "")
+	v, _ := d.CreateVersion(p.ID, "/tmp/v")
+	c, _ := d.CreateComment(v.ID, "index.html", 10.5, 20.3, "Alice", "a@t.com", "hello")
+
+	got, err := d.GetComment(c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.VersionID != v.ID {
+		t.Errorf("VersionID = %q, want %q", got.VersionID, v.ID)
+	}
+	if got.Body != "hello" || got.Page != "index.html" {
+		t.Errorf("unexpected comment: %+v", got)
+	}
+}
+
+func TestGetCommentNotFound(t *testing.T) {
+	d := newTestDB(t)
+	_, err := d.GetComment("nonexistent")
+	if err == nil {
+		t.Error("expected error for nonexistent comment")
+	}
+}
+
+func TestGetCommentClosedDB(t *testing.T) {
+	d := closedDB(t)
+	_, err := d.GetComment("x")
+	if err == nil {
+		t.Error("expected error")
+	}
+}
