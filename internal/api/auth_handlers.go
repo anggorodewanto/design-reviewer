@@ -142,10 +142,19 @@ func (h *Handler) handleCLILogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req struct {
 		Code string `json:"code"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Code == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if isMaxBytesError(err) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "missing code", http.StatusBadRequest)
+		return
+	}
+	if req.Code == "" {
 		http.Error(w, "missing code", http.StatusBadRequest)
 		return
 	}

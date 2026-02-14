@@ -112,10 +112,15 @@ func (h *Handler) handleListProjects(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req struct {
 		Status string `json:"status"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if isMaxBytesError(err) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}

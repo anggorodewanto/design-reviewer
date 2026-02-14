@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -95,6 +96,7 @@ func (h *Handler) handleGetComments(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 	versionID := r.PathValue("id")
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 
 	var req struct {
 		Page        string  `json:"page"`
@@ -105,6 +107,10 @@ func (h *Handler) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 		Body        string  `json:"body"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if isMaxBytesError(err) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
@@ -144,6 +150,7 @@ func (h *Handler) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleCreateReply(w http.ResponseWriter, r *http.Request) {
 	commentID := r.PathValue("id")
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 
 	var req struct {
 		AuthorName  string `json:"author_name"`
@@ -151,6 +158,10 @@ func (h *Handler) handleCreateReply(w http.ResponseWriter, r *http.Request) {
 		Body        string `json:"body"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if isMaxBytesError(err) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
@@ -183,11 +194,16 @@ func (h *Handler) handleCreateReply(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleMoveComment(w http.ResponseWriter, r *http.Request) {
 	commentID := r.PathValue("id")
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req struct {
 		XPercent float64 `json:"x_percent"`
 		YPercent float64 `json:"y_percent"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if isMaxBytesError(err) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
@@ -218,4 +234,9 @@ func (h *Handler) handleToggleResolve(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"resolved": resolved})
+}
+
+func isMaxBytesError(err error) bool {
+	var maxErr *http.MaxBytesError
+	return errors.As(err, &maxErr)
 }
