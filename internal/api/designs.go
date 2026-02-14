@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -10,12 +11,12 @@ func (h *Handler) handleDesignFile(w http.ResponseWriter, r *http.Request) {
 	versionID := r.PathValue("version_id")
 	filePath := r.PathValue("filepath")
 
-	if strings.Contains(filePath, "..") {
+	fullPath := h.Storage.GetFilePath(versionID, filePath)
+	baseDir := filepath.Clean(h.Storage.GetFilePath(versionID, "")) + string(os.PathSeparator)
+	if !strings.HasPrefix(fullPath, baseDir) {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
 	}
-
-	fullPath := h.Storage.GetFilePath(versionID, filePath)
 	f, err := os.Open(fullPath)
 	if err != nil {
 		http.NotFound(w, r)

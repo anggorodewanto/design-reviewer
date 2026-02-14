@@ -2202,3 +2202,47 @@ func TestExpiredBearerTokenReturns401(t *testing.T) {
 		t.Fatalf("expected 401 for expired token, got %d", resp.StatusCode)
 	}
 }
+
+// --- Phase 18: Strengthen Path Traversal ---
+
+func TestDesignFilePathTraversalBlocked(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "<h1>hi</h1>"})
+	res := uploadZip(t, env.Server.URL, "traversal-proj", z)
+	vid := res["version_id"].(string)
+
+	// Go's HTTP client normalizes ".." out of URLs before sending,
+	// so the server sees a cleaned path and returns 404. Verify that
+	// traversal attempts never return 200 (defense-in-depth).
+	paths := []string{"../../../etc/passwd", "images/../../etc/passwd", ".."}
+	for _, p := range paths {
+		resp, err := http.Get(env.Server.URL + "/designs/" + vid + "/" + p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode == 200 {
+			t.Errorf("path %q: must not return 200", p)
+		}
+	}
+}
+
+func TestDesignFileNestedPathWorks(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "<h1>hi</h1>", "images/logo.png": "imgdata"})
+	res := uploadZip(t, env.Server.URL, "nested-proj", z)
+	vid := res["version_id"].(string)
+
+	resp, err := http.Get(env.Server.URL + "/designs/" + vid + "/images/logo.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200 for nested path, got %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "imgdata" {
+		t.Errorf("expected 'imgdata', got %q", string(body))
+	}
+}
