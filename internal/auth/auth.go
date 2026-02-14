@@ -38,6 +38,7 @@ type User struct {
 	Name      string `json:"name"`
 	Email     string `json:"email"`
 	ExpiresAt int64  `json:"exp,omitempty"`
+	SessionID string `json:"sid,omitempty"`
 }
 
 // NewGoogleOAuthConfig creates an oauth2.Config for Google.
@@ -79,6 +80,13 @@ func GenerateAPIToken() string {
 // GenerateState generates a random state string for OAuth CSRF protection.
 func GenerateState() string {
 	b := make([]byte, 16)
+	io.ReadFull(rand.Reader, b)
+	return hex.EncodeToString(b)
+}
+
+// GenerateSessionID generates a random session ID for server-side session tracking.
+func GenerateSessionID() string {
+	b := make([]byte, 32)
 	io.ReadFull(rand.Reader, b)
 	return hex.EncodeToString(b)
 }

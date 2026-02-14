@@ -101,7 +101,12 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	secure := strings.HasPrefix(h.Auth.BaseURL, "https://")
-	if err := auth.SetSessionCookie(w, h.Auth.SessionSecret, auth.User{Name: name, Email: email}, secure); err != nil {
+	sessionID := auth.GenerateSessionID()
+	if err := h.DB.CreateSession(sessionID, name, email); err != nil {
+		http.Error(w, "session error", http.StatusInternalServerError)
+		return
+	}
+	if err := auth.SetSessionCookie(w, h.Auth.SessionSecret, auth.User{Name: name, Email: email, SessionID: sessionID}, secure); err != nil {
 		http.Error(w, "session error", http.StatusInternalServerError)
 		return
 	}
@@ -172,6 +177,11 @@ func (h *Handler) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie("session"); err == nil && cookie.Value != "" {
+		if u, err := auth.VerifySession(h.Auth.SessionSecret, cookie.Value); err == nil && u.SessionID != "" {
+			h.DB.DeleteSession(u.SessionID)
+		}
+	}
 	auth.ClearSessionCookie(w)
 	http.Redirect(w, r, "/login", http.StatusFound)
 }

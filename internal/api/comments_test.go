@@ -45,6 +45,9 @@ type mockDB struct {
 	listProjectsForUserErr     error
 	moveCommentErr             error
 	getCommentErr              error
+	createSessionErr           error
+	getSessionErr              error
+	deleteSessionErr           error
 }
 
 func (m *mockDB) GetUnresolvedCommentsUpTo(versionID string) ([]db.Comment, error) {
@@ -240,6 +243,27 @@ func (m *mockDB) GetComment(id string) (*db.Comment, error) {
 		return nil, m.getCommentErr
 	}
 	return m.DataStore.GetComment(id)
+}
+
+func (m *mockDB) CreateSession(id, userName, userEmail string) error {
+	if m.createSessionErr != nil {
+		return m.createSessionErr
+	}
+	return m.DataStore.CreateSession(id, userName, userEmail)
+}
+
+func (m *mockDB) GetSession(id string) (string, string, error) {
+	if m.getSessionErr != nil {
+		return "", "", m.getSessionErr
+	}
+	return m.DataStore.GetSession(id)
+}
+
+func (m *mockDB) DeleteSession(id string) error {
+	if m.deleteSessionErr != nil {
+		return m.deleteSessionErr
+	}
+	return m.DataStore.DeleteSession(id)
 }
 
 var errDB = errors.New("db failure")

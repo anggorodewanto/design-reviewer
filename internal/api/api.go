@@ -38,6 +38,9 @@ type DataStore interface {
 	AddMember(projectID, email string) error
 	ListMembers(projectID string) ([]db.ProjectMember, error)
 	RemoveMember(projectID, email string) error
+	CreateSession(id, userName, userEmail string) error
+	GetSession(id string) (string, string, error)
+	DeleteSession(id string) error
 }
 
 type Handler struct {

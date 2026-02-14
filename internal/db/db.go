@@ -132,6 +132,13 @@ CREATE TABLE IF NOT EXISTS project_members (
     added_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (project_id, user_email)
 );
+
+CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    user_name TEXT NOT NULL,
+    user_email TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 `
 
 func New(dbPath string) (*DB, error) {
@@ -578,5 +585,23 @@ func (d *DB) ListMembers(projectID string) ([]ProjectMember, error) {
 
 func (d *DB) RemoveMember(projectID, email string) error {
 	_, err := d.Exec(`DELETE FROM project_members WHERE project_id = ? AND user_email = ?`, projectID, email)
+	return err
+}
+
+// --- Sessions ---
+
+func (d *DB) CreateSession(id, userName, userEmail string) error {
+	_, err := d.Exec(`INSERT INTO sessions (id, user_name, user_email) VALUES (?, ?, ?)`, id, userName, userEmail)
+	return err
+}
+
+func (d *DB) GetSession(id string) (string, string, error) {
+	var name, email string
+	err := d.QueryRow(`SELECT user_name, user_email FROM sessions WHERE id = ?`, id).Scan(&name, &email)
+	return name, email, err
+}
+
+func (d *DB) DeleteSession(id string) error {
+	_, err := d.Exec(`DELETE FROM sessions WHERE id = ?`, id)
 	return err
 }

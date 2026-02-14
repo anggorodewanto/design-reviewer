@@ -29,6 +29,12 @@ func (h *Handler) webMiddleware(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
+		if u.SessionID != "" {
+			if _, _, err := h.DB.GetSession(u.SessionID); err != nil {
+				http.Redirect(w, r, "/login", http.StatusFound)
+				return
+			}
+		}
 		ctx := auth.SetUserInContext(r.Context(), u.Name, u.Email)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -50,6 +56,14 @@ func (h *Handler) apiMiddleware(next http.Handler) http.Handler {
 		// Try session cookie
 		if cookie, err := r.Cookie("session"); err == nil && cookie.Value != "" {
 			if u, err := auth.VerifySession(h.Auth.SessionSecret, cookie.Value); err == nil {
+				if u.SessionID != "" {
+					if _, _, err := h.DB.GetSession(u.SessionID); err != nil {
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(http.StatusUnauthorized)
+						json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+						return
+					}
+				}
 				ctx := auth.SetUserInContext(r.Context(), u.Name, u.Email)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
