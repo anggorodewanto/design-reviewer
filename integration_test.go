@@ -2183,3 +2183,22 @@ func TestOAuthCallbackSessionCookieNotSecureOverHTTP(t *testing.T) {
 	}
 	t.Error("session cookie not set in callback response")
 }
+
+// --- Phase 17: Token Expiry ---
+
+func TestExpiredBearerTokenReturns401(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	env.DB.CreateToken("expired-token", "TokenUser", "token@test.com")
+	env.DB.Exec(`UPDATE tokens SET expires_at = datetime('now', '-1 second') WHERE token = ?`, "expired-token")
+
+	req, _ := http.NewRequest("GET", env.Server.URL+"/api/projects", nil)
+	req.Header.Set("Authorization", "Bearer expired-token")
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 401 {
+		t.Fatalf("expected 401 for expired token, got %d", resp.StatusCode)
+	}
+}

@@ -485,6 +485,31 @@ func TestCreateTokenDuplicate(t *testing.T) {
 	}
 }
 
+// --- Phase 17: Token Expiry ---
+
+func TestExpiredTokenRejected(t *testing.T) {
+	d := newTestDB(t)
+	d.CreateToken("exp-tok", "Alice", "alice@test.com")
+	d.Exec(`UPDATE tokens SET expires_at = datetime('now', '-1 second') WHERE token = ?`, "exp-tok")
+	_, _, err := d.GetUserByToken("exp-tok")
+	if err != sql.ErrNoRows {
+		t.Errorf("expected ErrNoRows for expired token, got %v", err)
+	}
+}
+
+func TestTokenHasExpiresAt(t *testing.T) {
+	d := newTestDB(t)
+	d.CreateToken("check-tok", "Bob", "bob@test.com")
+	var expiresAt string
+	err := d.QueryRow(`SELECT expires_at FROM tokens WHERE token = ?`, "check-tok").Scan(&expiresAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expiresAt == "" {
+		t.Error("expires_at should be set")
+	}
+}
+
 // --- Closed DB error tests ---
 
 func closedDB(t *testing.T) *DB {
