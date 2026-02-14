@@ -187,15 +187,42 @@ func TestHandleDesignFileNotFound(t *testing.T) {
 
 func TestHandleDesignFilePathTraversal(t *testing.T) {
 	h := setupTestHandler(t)
+	_, vid := seedProject(t, h, map[string]string{"index.html": "x"})
 
-	req := httptest.NewRequest("GET", "/designs/v1/../../../etc/passwd", nil)
-	req.SetPathValue("version_id", "v1")
-	req.SetPathValue("filepath", "../../../etc/passwd")
+	cases := []struct {
+		name     string
+		filepath string
+	}{
+		{"dot-dot", "../../../etc/passwd"},
+		{"mid-path", "images/../../etc/passwd"},
+		{"dot-dot-only", ".."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/designs/"+vid+"/"+tc.filepath, nil)
+			req.SetPathValue("version_id", vid)
+			req.SetPathValue("filepath", tc.filepath)
+			w := httptest.NewRecorder()
+			h.handleDesignFile(w, req)
+			if w.Code != 400 {
+				t.Errorf("expected 400, got %d", w.Code)
+			}
+		})
+	}
+}
+
+func TestHandleDesignFileNestedPath(t *testing.T) {
+	h := setupTestHandler(t)
+	_, vid := seedProject(t, h, map[string]string{"index.html": "x", "images/logo.png": "img-data"})
+
+	req := httptest.NewRequest("GET", "/designs/"+vid+"/images/logo.png", nil)
+	req.SetPathValue("version_id", vid)
+	req.SetPathValue("filepath", "images/logo.png")
 	w := httptest.NewRecorder()
 	h.handleDesignFile(w, req)
 
-	if w.Code != 400 {
-		t.Errorf("expected 400, got %d", w.Code)
+	if w.Code != 200 {
+		t.Errorf("expected 200 for nested path, got %d", w.Code)
 	}
 }
 

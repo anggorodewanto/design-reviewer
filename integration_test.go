@@ -2183,3 +2183,232 @@ func TestOAuthCallbackSessionCookieNotSecureOverHTTP(t *testing.T) {
 	}
 	t.Error("session cookie not set in callback response")
 }
+
+// --- Phase 17: Token Expiry ---
+
+func TestExpiredBearerTokenReturns401(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	env.DB.CreateToken("expired-token", "TokenUser", "token@test.com")
+	env.DB.Exec(`UPDATE tokens SET expires_at = datetime('now', '-1 second') WHERE token = ?`, "expired-token")
+
+	req, _ := http.NewRequest("GET", env.Server.URL+"/api/projects", nil)
+	req.Header.Set("Authorization", "Bearer expired-token")
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 401 {
+		t.Fatalf("expected 401 for expired token, got %d", resp.StatusCode)
+	}
+}
+
+// --- Phase 18: Strengthen Path Traversal ---
+
+func TestDesignFilePathTraversalBlocked(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "<h1>hi</h1>"})
+	res := uploadZip(t, env.Server.URL, "traversal-proj", z)
+	vid := res["version_id"].(string)
+
+	// Go's HTTP client normalizes ".." out of URLs before sending,
+	// so the server sees a cleaned path and returns 404. Verify that
+	// traversal attempts never return 200 (defense-in-depth).
+	paths := []string{"../../../etc/passwd", "images/../../etc/passwd", ".."}
+	for _, p := range paths {
+		resp, err := http.Get(env.Server.URL + "/designs/" + vid + "/" + p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode == 200 {
+			t.Errorf("path %q: must not return 200", p)
+		}
+	}
+}
+
+func TestDesignFileNestedPathWorks(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "<h1>hi</h1>", "images/logo.png": "imgdata"})
+	res := uploadZip(t, env.Server.URL, "nested-proj", z)
+	vid := res["version_id"].(string)
+
+	resp, err := http.Get(env.Server.URL + "/designs/" + vid + "/images/logo.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200 for nested path, got %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "imgdata" {
+		t.Errorf("expected 'imgdata', got %q", string(body))
+	}
+}
+
+// --- Phase 19: Keyboard Shortcut to Post Comments ---
+
+func TestAnnotationsJSContainsKeyboardShortcut(t *testing.T) {
+	env := setup(t)
+	resp, err := http.Get(env.Server.URL + "/static/annotations.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+	for _, needle := range []string{
+		`e.key === "Enter"`,
+		"e.ctrlKey",
+		"e.metaKey",
+		"nc-body",
+		"rp-body",
+		"shortcut-hint",
+	} {
+		if !strings.Contains(body, needle) {
+			t.Errorf("annotations.js missing expected content: %s", needle)
+		}
+	}
+}
+
+func TestStyleCSSContainsShortcutHint(t *testing.T) {
+	env := setup(t)
+	resp, err := http.Get(env.Server.URL + "/static/style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), ".shortcut-hint") {
+		t.Error("style.css missing .shortcut-hint class")
+	}
+}
+
+// --- Phase 20: Draggable Comment Pins ---
+
+func TestMoveCommentEndpoint(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "<h1>hi</h1>"})
+	res := uploadZip(t, env.Server.URL, "move-proj", z)
+	vid := res["version_id"].(string)
+
+	// Create a comment
+	cBody := `{"page":"index.html","x_percent":10,"y_percent":20,"author_name":"Alice","author_email":"a@t.com","body":"move me"}`
+	resp, err := http.Post(env.Server.URL+"/api/versions/"+vid+"/comments", "application/json", strings.NewReader(cBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 201 {
+		t.Fatalf("create comment: expected 201, got %d", resp.StatusCode)
+	}
+	var comment map[string]any
+	json.NewDecoder(resp.Body).Decode(&comment)
+	cid := comment["id"].(string)
+
+	// Move the comment
+	moveBody := `{"x_percent":55.5,"y_percent":77.3}`
+	req, _ := http.NewRequest("PATCH", env.Server.URL+"/api/comments/"+cid+"/move", strings.NewReader(moveBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp2, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != 200 {
+		b, _ := io.ReadAll(resp2.Body)
+		t.Fatalf("move: expected 200, got %d: %s", resp2.StatusCode, string(b))
+	}
+	var moveRes map[string]bool
+	json.NewDecoder(resp2.Body).Decode(&moveRes)
+	if !moveRes["ok"] {
+		t.Error("expected ok=true")
+	}
+
+	// Verify coordinates persisted
+	resp3, _ := http.Get(env.Server.URL + "/api/versions/" + vid + "/comments")
+	defer resp3.Body.Close()
+	var comments []map[string]any
+	json.NewDecoder(resp3.Body).Decode(&comments)
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	if comments[0]["x_percent"].(float64) != 55.5 || comments[0]["y_percent"].(float64) != 77.3 {
+		t.Errorf("coords = (%v, %v), want (55.5, 77.3)", comments[0]["x_percent"], comments[0]["y_percent"])
+	}
+}
+
+func TestMoveCommentValidation(t *testing.T) {
+	env := setup(t)
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"x over 100", `{"x_percent":101,"y_percent":50}`},
+		{"y negative", `{"x_percent":50,"y_percent":-1}`},
+		{"invalid json", `not json`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, _ := http.NewRequest("PATCH", env.Server.URL+"/api/comments/any-id/move", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != 400 {
+				t.Errorf("expected 400, got %d", resp.StatusCode)
+			}
+		})
+	}
+}
+
+func TestAnnotationsJSContainsDragInteraction(t *testing.T) {
+	env := setup(t)
+	resp, err := http.Get(env.Server.URL + "/static/annotations.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+	for _, needle := range []string{
+		"mousedown",
+		"mousemove",
+		"mouseup",
+		"pin-dragging",
+		"/move",
+		"dragged",
+	} {
+		if !strings.Contains(body, needle) {
+			t.Errorf("annotations.js missing expected content: %s", needle)
+		}
+	}
+}
+
+func TestStyleCSSContainsDragStyles(t *testing.T) {
+	env := setup(t)
+	resp, err := http.Get(env.Server.URL + "/static/style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+	for _, needle := range []string{"cursor: grab", "pin-dragging", "cursor: grabbing", "opacity: 0.7"} {
+		if !strings.Contains(body, needle) {
+			t.Errorf("style.css missing: %s", needle)
+		}
+	}
+}

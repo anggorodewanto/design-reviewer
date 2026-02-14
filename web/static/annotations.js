@@ -12,6 +12,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var currentFilter = "all";
     var currentPage = "";
     var savedPanelPosition = null;
+    var shortcutHint = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘+Enter to post" : "Ctrl+Enter to post";
 
     // Close panel when clicking on backdrop
     panelBackdrop.addEventListener("click", function(e) {
@@ -60,7 +61,41 @@ document.addEventListener("DOMContentLoaded", function () {
             pin.dataset.index = i;
             pin.addEventListener("click", function (e) {
                 e.stopPropagation();
+                if (pin.dataset.dragged) { delete pin.dataset.dragged; return; }
                 openPanel(c, pin);
+            });
+            pin.addEventListener("mousedown", function (e) {
+                e.stopPropagation();
+                e.preventDefault();
+                var startX = e.clientX, startY = e.clientY;
+                var dragging = false;
+                function onMove(ev) {
+                    var dx = ev.clientX - startX, dy = ev.clientY - startY;
+                    if (!dragging && dx * dx + dy * dy < 16) return;
+                    if (!dragging) { dragging = true; pin.classList.add("pin-dragging"); }
+                    var rect = overlay.getBoundingClientRect();
+                    var x = Math.max(0, Math.min(100, ((ev.clientX - rect.left) / rect.width) * 100));
+                    var y = Math.max(0, Math.min(100, ((ev.clientY - rect.top) / rect.height) * 100));
+                    pin.style.left = x + "%";
+                    pin.style.top = y + "%";
+                }
+                function onUp(ev) {
+                    document.removeEventListener("mousemove", onMove);
+                    document.removeEventListener("mouseup", onUp);
+                    pin.classList.remove("pin-dragging");
+                    if (!dragging) return;
+                    pin.dataset.dragged = "1";
+                    var rect = overlay.getBoundingClientRect();
+                    var nx = Math.max(0, Math.min(100, ((ev.clientX - rect.left) / rect.width) * 100));
+                    var ny = Math.max(0, Math.min(100, ((ev.clientY - rect.top) / rect.height) * 100));
+                    fetch("/api/comments/" + c.id + "/move", {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ x_percent: nx, y_percent: ny })
+                    }).then(function () { loadComments(); });
+                }
+                document.addEventListener("mousemove", onMove);
+                document.addEventListener("mouseup", onUp);
             });
             overlay.appendChild(pin);
         });
@@ -71,18 +106,34 @@ document.addEventListener("DOMContentLoaded", function () {
         var rect = overlay.getBoundingClientRect();
         var xPct = ((e.clientX - rect.left) / rect.width) * 100;
         var yPct = ((e.clientY - rect.top) / rect.height) * 100;
-        showNewCommentForm(xPct, yPct);
+        showNewCommentForm(xPct, yPct, e.clientX, e.clientY);
     });
 
-    function showNewCommentForm(xPct, yPct) {
+    function positionPanel(clientX, clientY) {
+        var panelWidth = 360;
+        var panelHeight = 800;
+        var spacing = 12;
+        var left = clientX + spacing;
+        if (left + panelWidth > window.innerWidth - 20) left = clientX - panelWidth - spacing;
+        var top = clientY;
+        if (top + panelHeight > window.innerHeight - 20) top = window.innerHeight - panelHeight - 20;
+        if (top < 20) top = 20;
+        panel.style.left = left + 'px';
+        panel.style.top = top + 'px';
+        savedPanelPosition = { left: left, top: top };
+    }
+
+    function showNewCommentForm(xPct, yPct, clientX, clientY) {
         var nameField = window.authUser ? '' : '<input class="comment-input" placeholder="Your name" id="nc-name">';
         panel.innerHTML =
             '<div class="panel-header"><span>New Comment</span><button class="panel-close">&times;</button></div>' +
             '<div class="panel-body">' +
             nameField +
             '<textarea class="comment-input" placeholder="Add a comment..." id="nc-body" rows="3"></textarea>' +
+            '<span class="shortcut-hint">' + shortcutHint + '</span>' +
             '<button class="btn-submit" id="nc-submit">Post</button>' +
             '</div>';
+        positionPanel(clientX, clientY);
         panelBackdrop.classList.add("open");
         // Auto-focus the comment input
         setTimeout(function() {
@@ -114,6 +165,12 @@ document.addEventListener("DOMContentLoaded", function () {
                 loadComments();
             });
         });
+        document.getElementById("nc-body").addEventListener("keydown", function (e) {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                document.getElementById("nc-submit").click();
+            }
+        });
     }
 
     // Open comment panel for existing pin
@@ -138,6 +195,7 @@ document.addEventListener("DOMContentLoaded", function () {
             '<div class="reply-form">' +
             (window.authUser ? '' : '<input class="comment-input" placeholder="Your name" id="rp-name">') +
             '<textarea class="comment-input" placeholder="Reply..." id="rp-body" rows="2"></textarea>' +
+            '<span class="shortcut-hint">' + shortcutHint + '</span>' +
             '<button class="btn-submit" id="rp-submit">Reply</button>' +
             '</div></div>';
         panel.innerHTML = html;
@@ -148,28 +206,7 @@ document.addEventListener("DOMContentLoaded", function () {
             panel.style.top = savedPanelPosition.top + 'px';
         } else if (sourceElement) {
             var rect = sourceElement.getBoundingClientRect();
-            var panelWidth = 360;
-            var panelHeight = 800; // max-height
-            var spacing = 12;
-
-            // Calculate position (prefer right side, fallback to left)
-            var left = rect.right + spacing;
-            if (left + panelWidth > window.innerWidth - 20) {
-                left = rect.left - panelWidth - spacing;
-            }
-
-            // Vertical positioning (align with top of element, but keep in viewport)
-            var top = rect.top;
-            if (top + panelHeight > window.innerHeight - 20) {
-                top = window.innerHeight - panelHeight - 20;
-            }
-            if (top < 20) top = 20;
-
-            panel.style.left = left + 'px';
-            panel.style.top = top + 'px';
-
-            // Save the position for future use
-            savedPanelPosition = { left: left, top: top };
+            positionPanel(rect.right, rect.top);
         }
 
         panelBackdrop.classList.add("open");
@@ -187,6 +224,12 @@ document.addEventListener("DOMContentLoaded", function () {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ author_name: name || "Anonymous", author_email: "", body: body })
             }).then(function () { loadComments().then(function () { openPanelById(c.id); }); });
+        });
+        document.getElementById("rp-body").addEventListener("keydown", function (e) {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                document.getElementById("rp-submit").click();
+            }
         });
         document.getElementById("rp-resolve").addEventListener("click", function () {
             fetch("/api/comments/" + c.id + "/resolve", { method: "PATCH" })
@@ -218,17 +261,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // --- Comments Sidebar ---
     var csSidebar = document.getElementById("comments-sidebar");
     var csList = document.getElementById("comments-sidebar-list");
-    var csToggle = document.getElementById("toggle-comments-sidebar");
 
-    if (csToggle) {
-        csToggle.addEventListener("click", function () {
-            csSidebar.classList.toggle("open");
-            csToggle.classList.toggle("active");
-            if (csSidebar.classList.contains("open")) renderCommentsSidebar();
-            // Re-measure after sidebar transition completes
-            setTimeout(function () { window.dispatchEvent(new Event("resize")); }, 300);
-        });
-    }
 
     function renderCommentsSidebar() {
         if (!csList) return;

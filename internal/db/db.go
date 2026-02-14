@@ -113,7 +113,8 @@ CREATE TABLE IF NOT EXISTS tokens (
     token TEXT PRIMARY KEY,
     user_name TEXT NOT NULL,
     user_email TEXT NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME NOT NULL DEFAULT (datetime('now', '+90 days'))
 );
 
 CREATE TABLE IF NOT EXISTS project_invites (
@@ -147,6 +148,8 @@ func New(dbPath string) (*DB, error) {
 	if _, err := sqlDB.Exec(schema); err != nil {
 		return nil, err
 	}
+	// Migration: add expires_at to tokens if missing
+	sqlDB.Exec(`ALTER TABLE tokens ADD COLUMN expires_at DATETIME NOT NULL DEFAULT (datetime('now', '+90 days'))`)
 	return &DB{sqlDB}, nil
 }
 
@@ -385,6 +388,11 @@ func (d *DB) GetUnresolvedCommentsUpTo(versionID string) ([]Comment, error) {
 	return comments, rows.Err()
 }
 
+func (d *DB) MoveComment(id string, x, y float64) error {
+	_, err := d.Exec("UPDATE comments SET x_percent=?, y_percent=? WHERE id=?", x, y, id)
+	return err
+}
+
 func (d *DB) ToggleResolve(commentID string) (bool, error) {
 	var resolved bool
 	err := d.QueryRow(`UPDATE comments SET resolved = NOT resolved WHERE id = ? RETURNING resolved`, commentID).Scan(&resolved)
@@ -437,12 +445,12 @@ func (d *DB) GetReplies(commentID string) ([]Reply, error) {
 // --- Tokens ---
 
 func (d *DB) CreateToken(token, userName, userEmail string) error {
-	_, err := d.Exec(`INSERT INTO tokens (token, user_name, user_email) VALUES (?, ?, ?)`, token, userName, userEmail)
+	_, err := d.Exec(`INSERT INTO tokens (token, user_name, user_email, expires_at) VALUES (?, ?, ?, datetime('now', '+90 days'))`, token, userName, userEmail)
 	return err
 }
 
 func (d *DB) GetUserByToken(token string) (name, email string, err error) {
-	err = d.QueryRow(`SELECT user_name, user_email FROM tokens WHERE token = ?`, token).Scan(&name, &email)
+	err = d.QueryRow(`SELECT user_name, user_email FROM tokens WHERE token = ? AND expires_at > CURRENT_TIMESTAMP`, token).Scan(&name, &email)
 	return
 }
 

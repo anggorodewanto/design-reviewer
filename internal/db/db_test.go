@@ -485,6 +485,31 @@ func TestCreateTokenDuplicate(t *testing.T) {
 	}
 }
 
+// --- Phase 17: Token Expiry ---
+
+func TestExpiredTokenRejected(t *testing.T) {
+	d := newTestDB(t)
+	d.CreateToken("exp-tok", "Alice", "alice@test.com")
+	d.Exec(`UPDATE tokens SET expires_at = datetime('now', '-1 second') WHERE token = ?`, "exp-tok")
+	_, _, err := d.GetUserByToken("exp-tok")
+	if err != sql.ErrNoRows {
+		t.Errorf("expected ErrNoRows for expired token, got %v", err)
+	}
+}
+
+func TestTokenHasExpiresAt(t *testing.T) {
+	d := newTestDB(t)
+	d.CreateToken("check-tok", "Bob", "bob@test.com")
+	var expiresAt string
+	err := d.QueryRow(`SELECT expires_at FROM tokens WHERE token = ?`, "check-tok").Scan(&expiresAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expiresAt == "" {
+		t.Error("expires_at should be set")
+	}
+}
+
 // --- Closed DB error tests ---
 
 func closedDB(t *testing.T) *DB {
@@ -903,6 +928,42 @@ func TestListMembersClosedDB(t *testing.T) {
 	d := closedDB(t)
 	_, err := d.ListMembers("x")
 	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+// --- Phase 20: MoveComment ---
+
+func TestMoveComment(t *testing.T) {
+	d := newTestDB(t)
+	p, _ := d.CreateProject("mv", "")
+	v, _ := d.CreateVersion(p.ID, "/tmp/v")
+	c, _ := d.CreateComment(v.ID, "index.html", 10, 20, "A", "a@t.com", "hi")
+
+	if err := d.MoveComment(c.ID, 55.5, 77.3); err != nil {
+		t.Fatal(err)
+	}
+
+	comments, _ := d.GetCommentsForVersion(v.ID)
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	if comments[0].XPercent != 55.5 || comments[0].YPercent != 77.3 {
+		t.Errorf("coords = (%v, %v), want (55.5, 77.3)", comments[0].XPercent, comments[0].YPercent)
+	}
+}
+
+func TestMoveCommentNonexistent(t *testing.T) {
+	d := newTestDB(t)
+	// Should not error — UPDATE affects 0 rows
+	if err := d.MoveComment("nonexistent", 10, 20); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestMoveCommentClosedDB(t *testing.T) {
+	d := closedDB(t)
+	if err := d.MoveComment("x", 10, 20); err == nil {
 		t.Error("expected error")
 	}
 }
