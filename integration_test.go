@@ -2879,3 +2879,60 @@ func TestCommentWithQuotesPreserved(t *testing.T) {
 		t.Errorf("body mangled: got %q", body)
 	}
 }
+
+// --- Phase 27: Security Headers ---
+
+func TestSecurityHeadersOnAllResponses(t *testing.T) {
+	// Setup with security headers middleware (mirrors cmd/server/main.go)
+	tmp := t.TempDir()
+	database, err := db.New(filepath.Join(tmp, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := storage.New(filepath.Join(tmp, "uploads"))
+	h := &api.Handler{DB: database, Storage: store, TemplatesDir: "web/templates", StaticDir: "web/static"}
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		mux.ServeHTTP(w, r)
+	})
+
+	srv := httptest.NewServer(wrapped)
+	t.Cleanup(func() { srv.Close(); database.Close() })
+
+	expected := map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"X-Frame-Options":       "DENY",
+		"Referrer-Policy":       "strict-origin-when-cross-origin",
+		"Permissions-Policy":    "camera=(), microphone=(), geolocation=()",
+	}
+
+	// Test on the home page
+	resp, err := http.Get(srv.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	for header, want := range expected {
+		if got := resp.Header.Get(header); got != want {
+			t.Errorf("GET /: %s = %q, want %q", header, got, want)
+		}
+	}
+
+	// Test on API endpoint
+	resp2, err := http.Get(srv.URL + "/api/projects")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+	for header, want := range expected {
+		if got := resp2.Header.Get(header); got != want {
+			t.Errorf("GET /api/projects: %s = %q, want %q", header, got, want)
+		}
+	}
+}
