@@ -2,6 +2,7 @@ package db
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"fmt"
@@ -461,13 +462,18 @@ func (d *DB) GetReplies(commentID string) ([]Reply, error) {
 
 // --- Tokens ---
 
+func hashToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
+}
+
 func (d *DB) CreateToken(token, userName, userEmail string) error {
-	_, err := d.Exec(`INSERT INTO tokens (token, user_name, user_email, expires_at) VALUES (?, ?, ?, datetime('now', '+90 days'))`, token, userName, userEmail)
+	_, err := d.Exec(`INSERT INTO tokens (token, user_name, user_email, expires_at) VALUES (?, ?, ?, datetime('now', '+90 days'))`, hashToken(token), userName, userEmail)
 	return err
 }
 
 func (d *DB) GetUserByToken(token string) (name, email string, err error) {
-	err = d.QueryRow(`SELECT user_name, user_email FROM tokens WHERE token = ? AND expires_at > CURRENT_TIMESTAMP`, token).Scan(&name, &email)
+	err = d.QueryRow(`SELECT user_name, user_email FROM tokens WHERE token = ? AND expires_at > CURRENT_TIMESTAMP`, hashToken(token)).Scan(&name, &email)
 	return
 }
 
