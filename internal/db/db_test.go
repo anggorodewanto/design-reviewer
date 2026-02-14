@@ -490,7 +490,7 @@ func TestCreateTokenDuplicate(t *testing.T) {
 func TestExpiredTokenRejected(t *testing.T) {
 	d := newTestDB(t)
 	d.CreateToken("exp-tok", "Alice", "alice@test.com")
-	d.Exec(`UPDATE tokens SET expires_at = datetime('now', '-1 second') WHERE token = ?`, "exp-tok")
+	d.Exec(`UPDATE tokens SET expires_at = datetime('now', '-1 second') WHERE token = ?`, hashToken("exp-tok"))
 	_, _, err := d.GetUserByToken("exp-tok")
 	if err != sql.ErrNoRows {
 		t.Errorf("expected ErrNoRows for expired token, got %v", err)
@@ -501,7 +501,7 @@ func TestTokenHasExpiresAt(t *testing.T) {
 	d := newTestDB(t)
 	d.CreateToken("check-tok", "Bob", "bob@test.com")
 	var expiresAt string
-	err := d.QueryRow(`SELECT expires_at FROM tokens WHERE token = ?`, "check-tok").Scan(&expiresAt)
+	err := d.QueryRow(`SELECT expires_at FROM tokens WHERE token = ?`, hashToken("check-tok")).Scan(&expiresAt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1001,6 +1001,62 @@ func TestGetCommentClosedDB(t *testing.T) {
 	_, err := d.GetComment("x")
 	if err == nil {
 		t.Error("expected error")
+	}
+}
+
+// --- Phase 25: Hash API Tokens ---
+
+func TestHashTokenDeterministic(t *testing.T) {
+	a := hashToken("my-token")
+	b := hashToken("my-token")
+	if a != b {
+		t.Errorf("hashToken not deterministic: %q != %q", a, b)
+	}
+	if len(a) != 64 {
+		t.Errorf("expected 64-char hex, got %d chars", len(a))
+	}
+}
+
+func TestHashTokenDifferentInputs(t *testing.T) {
+	a := hashToken("token-a")
+	b := hashToken("token-b")
+	if a == b {
+		t.Error("different tokens should produce different hashes")
+	}
+}
+
+func TestTokenStoredAsHash(t *testing.T) {
+	d := newTestDB(t)
+	d.CreateToken("plaintext-tok", "Alice", "alice@test.com")
+
+	// Raw SQL query — the stored value should be the hash, not plaintext
+	var stored string
+	d.QueryRow(`SELECT token FROM tokens LIMIT 1`).Scan(&stored)
+	if stored == "plaintext-tok" {
+		t.Error("token stored as plaintext, expected hash")
+	}
+	if stored != hashToken("plaintext-tok") {
+		t.Errorf("stored = %q, want %q", stored, hashToken("plaintext-tok"))
+	}
+}
+
+func TestGetUserByTokenUsesHash(t *testing.T) {
+	d := newTestDB(t)
+	d.CreateToken("lookup-tok", "Bob", "bob@test.com")
+
+	// Lookup by plaintext should work (hashed internally)
+	name, email, err := d.GetUserByToken("lookup-tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "Bob" || email != "bob@test.com" {
+		t.Errorf("got name=%q email=%q", name, email)
+	}
+
+	// Lookup by hash directly should fail (double-hashed)
+	_, _, err = d.GetUserByToken(hashToken("lookup-tok"))
+	if err == nil {
+		t.Error("looking up by hash should fail (would double-hash)")
 	}
 }
 

@@ -3,7 +3,9 @@ package integration
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -2191,7 +2193,8 @@ func TestOAuthCallbackSessionCookieNotSecureOverHTTP(t *testing.T) {
 func TestExpiredBearerTokenReturns401(t *testing.T) {
 	env, _ := setupWithAuth(t)
 	env.DB.CreateToken("expired-token", "TokenUser", "token@test.com")
-	env.DB.Exec(`UPDATE tokens SET expires_at = datetime('now', '-1 second') WHERE token = ?`, "expired-token")
+	h := sha256.Sum256([]byte("expired-token"))
+	env.DB.Exec(`UPDATE tokens SET expires_at = datetime('now', '-1 second') WHERE token = ?`, hex.EncodeToString(h[:]))
 
 	req, _ := http.NewRequest("GET", env.Server.URL+"/api/projects", nil)
 	req.Header.Set("Authorization", "Bearer expired-token")
@@ -2762,5 +2765,61 @@ func TestOAuthCallbackCreatesServerSession(t *testing.T) {
 	}
 	if name != "IntegrationUser" || email != "integration@test.com" {
 		t.Errorf("session DB data: name=%q email=%q", name, email)
+	}
+}
+
+// --- Phase 25: Hash API Tokens ---
+
+func TestTokenExchangeStoresHash(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	body := `{"code":"test-auth-code"}`
+	resp, err := http.Post(env.Server.URL+"/api/auth/token", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	plaintext := result["token"]
+
+	// Verify the DB stores a hash, not the plaintext
+	var stored string
+	env.DB.QueryRow(`SELECT token FROM tokens LIMIT 1`).Scan(&stored)
+	if stored == plaintext {
+		t.Error("token stored as plaintext, expected SHA-256 hash")
+	}
+	h := sha256.Sum256([]byte(plaintext))
+	if stored != hex.EncodeToString(h[:]) {
+		t.Error("stored token does not match SHA-256 hash of plaintext")
+	}
+
+	// Verify the plaintext token still works for API auth
+	req, _ := http.NewRequest("GET", env.Server.URL+"/api/projects", nil)
+	req.Header.Set("Authorization", "Bearer "+plaintext)
+	resp2, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != 200 {
+		t.Errorf("expected 200 with valid token, got %d", resp2.StatusCode)
+	}
+}
+
+func TestHashedTokenRejectsRawHash(t *testing.T) {
+	env, _ := setupWithAuth(t)
+	env.DB.CreateToken("secret-token", "User", "user@test.com")
+
+	// Using the hash directly as bearer should fail (double-hashed)
+	h := sha256.Sum256([]byte("secret-token"))
+	req, _ := http.NewRequest("GET", env.Server.URL+"/api/projects", nil)
+	req.Header.Set("Authorization", "Bearer "+hex.EncodeToString(h[:]))
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 401 {
+		t.Errorf("expected 401 when using hash as bearer, got %d", resp.StatusCode)
 	}
 }
