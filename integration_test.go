@@ -2823,3 +2823,59 @@ func TestHashedTokenRejectsRawHash(t *testing.T) {
 		t.Errorf("expected 401 when using hash as bearer, got %d", resp.StatusCode)
 	}
 }
+
+// --- Phase 26: Attribute Injection XSS Fix ---
+
+func TestEscFunctionEscapesQuotes(t *testing.T) {
+	env := setup(t)
+	for _, file := range []string{"/static/sharing.js", "/static/annotations.js"} {
+		resp, err := http.Get(env.Server.URL + file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		body := string(b)
+		if !strings.Contains(body, `&quot;`) {
+			t.Errorf("%s: esc() missing double-quote escaping (&quot;)", file)
+		}
+		if !strings.Contains(body, `&#39;`) {
+			t.Errorf("%s: esc() missing single-quote escaping (&#39;)", file)
+		}
+	}
+}
+
+func TestCommentWithQuotesPreserved(t *testing.T) {
+	env := setup(t)
+	z := makeZip(t, map[string]string{"index.html": "<h1>hi</h1>"})
+	res := uploadZip(t, env.Server.URL, "xss-proj", z)
+	vid := res["version_id"].(string)
+
+	payload := `{"page":"index.html","x_percent":10,"y_percent":20,"author_name":"O'Reilly \"Bob\"","body":"He said \"hello\" & it's <fine>"}`
+	resp, err := http.Post(env.Server.URL+"/api/versions/"+vid+"/comments", "application/json", strings.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+		t.Fatalf("create comment: expected 200/201, got %d", resp.StatusCode)
+	}
+
+	resp2, err := http.Get(env.Server.URL + "/api/versions/" + vid + "/comments")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	var comments []map[string]interface{}
+	json.NewDecoder(resp2.Body).Decode(&comments)
+	if len(comments) == 0 {
+		t.Fatal("expected at least one comment")
+	}
+	c := comments[0]
+	if name, _ := c["author_name"].(string); name != "O'Reilly \"Bob\"" {
+		t.Errorf("author_name mangled: got %q", name)
+	}
+	if body, _ := c["body"].(string); body != "He said \"hello\" & it's <fine>" {
+		t.Errorf("body mangled: got %q", body)
+	}
+}
