@@ -3147,3 +3147,45 @@ func TestNormalSizedRequestsStillWork(t *testing.T) {
 	}
 	resp.Body.Close()
 }
+
+// --- Phase 31: Disable Directory Listings ---
+
+func TestStaticDirListingReturns404(t *testing.T) {
+	env := setup(t)
+	resp, err := http.Get(env.Server.URL + "/static/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404 for /static/, got %d", resp.StatusCode)
+	}
+}
+
+func TestStaticSubdirListingReturns404(t *testing.T) {
+	env := setup(t)
+	resp, err := http.Get(env.Server.URL + "/static/images/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404 for /static/images/, got %d", resp.StatusCode)
+	}
+}
+
+func TestStaticFileStillServes(t *testing.T) {
+	env := setup(t)
+	resp, err := http.Get(env.Server.URL + "/static/style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200 for /static/style.css, got %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if len(body) == 0 {
+		t.Error("expected non-empty response body for style.css")
+	}
+}
