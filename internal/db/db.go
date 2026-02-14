@@ -536,9 +536,9 @@ func (d *DB) CreateInvite(projectID, createdBy string) (*ProjectInvite, error) {
 		CreatedBy: createdBy,
 	}
 	err := d.QueryRow(
-		`INSERT INTO project_invites (id, project_id, token, created_by) VALUES (?, ?, ?, ?) RETURNING created_at`,
+		`INSERT INTO project_invites (id, project_id, token, created_by, expires_at) VALUES (?, ?, ?, ?, datetime('now', '+7 days')) RETURNING created_at, expires_at`,
 		inv.ID, inv.ProjectID, inv.Token, inv.CreatedBy,
-	).Scan(&inv.CreatedAt)
+	).Scan(&inv.CreatedAt, &inv.ExpiresAt)
 	if err != nil {
 		return nil, err
 	}
@@ -553,7 +553,7 @@ func (d *DB) GetInviteByToken(token string) (*ProjectInvite, error) {
 	if err != nil {
 		return nil, err
 	}
-	if inv.ExpiresAt != nil && inv.ExpiresAt.Before(time.Now()) {
+	if inv.ExpiresAt == nil || inv.ExpiresAt.Before(time.Now()) {
 		return nil, sql.ErrNoRows
 	}
 	return inv, nil
