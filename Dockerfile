@@ -10,10 +10,13 @@ RUN CGO_ENABLED=1 go build -o design-reviewer ./cmd/cli
 
 # Stage 2: Runtime
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates && \
+    adduser -D -u 1001 appuser && \
+    mkdir -p /data && chown appuser:appuser /data
 WORKDIR /app
 COPY --from=builder /app/server .
 COPY --from=builder /app/design-reviewer .
 COPY web/ ./web/
+USER appuser
 EXPOSE 8080
 CMD ["./server", "--port", "8080", "--db", "/data/design-reviewer.db", "--uploads", "/data/uploads"]
