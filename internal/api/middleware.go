@@ -2,8 +2,13 @@ package api
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
+
+	"golang.org/x/time/rate"
 
 	"github.com/ab/design-reviewer/internal/auth"
 )
@@ -164,6 +169,80 @@ func (h *Handler) ownerOnly(next http.Handler) http.Handler {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			json.NewEncoder(w).Encode(map[string]string{"error": "owner only"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RateLimiter provides per-IP rate limiting with separate limits for
+// sensitive endpoints (auth/invite) and general endpoints.
+type RateLimiter struct {
+	general sync.Map // IP -> *rate.Limiter
+	strict  sync.Map // IP -> *rate.Limiter
+
+	generalRate rate.Limit
+	generalBurst int
+	strictRate   rate.Limit
+	strictBurst  int
+}
+
+// NewRateLimiter creates a RateLimiter with default rates:
+// general = 60 req/min, strict (auth/invite) = 10 req/min.
+func NewRateLimiter() *RateLimiter {
+	return &RateLimiter{
+		generalRate:  rate.Every(time.Second),     // 1 req/s ≈ 60/min
+		generalBurst: 10,
+		strictRate:   rate.Every(6 * time.Second), // ~10/min
+		strictBurst:  5,
+	}
+}
+
+func (rl *RateLimiter) limiterFor(store *sync.Map, r rate.Limit, burst int, ip string) *rate.Limiter {
+	if v, ok := store.Load(ip); ok {
+		return v.(*rate.Limiter)
+	}
+	l := rate.NewLimiter(r, burst)
+	actual, _ := store.LoadOrStore(ip, l)
+	return actual.(*rate.Limiter)
+}
+
+func isStrictPath(path string) bool {
+	return strings.HasPrefix(path, "/auth/") ||
+		strings.HasPrefix(path, "/api/auth/") ||
+		strings.HasPrefix(path, "/invite/") ||
+		strings.Contains(path, "/invites")
+}
+
+func clientIP(r *http.Request) string {
+	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+		if ip, _, ok := strings.Cut(fwd, ","); ok {
+			return strings.TrimSpace(ip)
+		}
+		return strings.TrimSpace(fwd)
+	}
+	// Strip port from RemoteAddr
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+// Middleware returns an http.Handler that enforces rate limits.
+func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := clientIP(r)
+		var lim *rate.Limiter
+		if isStrictPath(r.URL.Path) {
+			lim = rl.limiterFor(&rl.strict, rl.strictRate, rl.strictBurst, ip)
+		} else {
+			lim = rl.limiterFor(&rl.general, rl.generalRate, rl.generalBurst, ip)
+		}
+		if !lim.Allow() {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
 			return
 		}
 		next.ServeHTTP(w, r)

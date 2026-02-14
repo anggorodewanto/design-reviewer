@@ -68,9 +68,11 @@ func main() {
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 
+	rl := api.NewRateLimiter()
+
 	addr := fmt.Sprintf(":%d", *port)
 	fmt.Printf("server running on %s\n", addr)
-	log.Fatal(http.ListenAndServe(addr, securityHeaders(mux)))
+	log.Fatal(http.ListenAndServe(addr, securityHeaders(rl.Middleware(mux))))
 }
 
 func securityHeaders(next http.Handler) http.Handler {

@@ -11,5 +11,6 @@ require (
 	cloud.google.com/go/compute/metadata v0.3.0 // indirect
 	github.com/joho/godotenv v1.5.1 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
+	golang.org/x/time v0.14.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
