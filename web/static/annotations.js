@@ -260,9 +260,8 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // --- Comments Sidebar ---
-    var csSidebar = document.getElementById("comments-sidebar");
+    var csSidebar = document.getElementById("comments-panel-sidebar");
     var csList = document.getElementById("comments-sidebar-list");
-
 
     function renderCommentsSidebar() {
         if (!csList) return;
@@ -302,7 +301,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var _origRenderPins = renderPins;
     renderPins = function () {
         _origRenderPins();
-        if (csSidebar && csSidebar.classList.contains("open")) renderCommentsSidebar();
+        if (csSidebar && csSidebar.classList.contains("active")) renderCommentsSidebar();
     };
 
     // Viewport switcher
@@ -352,6 +351,9 @@ document.addEventListener("DOMContentLoaded", function () {
         panelBackdrop.classList.remove("open");
         loadComments();
     };
+
+    // Expose renderCommentsSidebar for mode switching
+    window.renderCommentsSidebar = renderCommentsSidebar;
 
     loadComments();
 });
