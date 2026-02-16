@@ -11,13 +11,49 @@ document.addEventListener("DOMContentLoaded", function () {
     function resizeFrame() {
         try {
             var doc = frame.contentDocument || frame.contentWindow.document;
-            frame.style.height = "0";
-            var h = doc.documentElement.scrollHeight + "px";
-            var w = doc.documentElement.scrollWidth + "px";
-            frame.style.height = h;
+            var body = doc.body;
+            var html = doc.documentElement;
+
+            // Inject a temporary style to override fixed heights
+            var styleId = 'dr-height-override';
+            var existingStyle = doc.getElementById(styleId);
+            if (existingStyle) existingStyle.remove();
+
+            var style = doc.createElement('style');
+            style.id = styleId;
+            style.textContent = 'html, body, * { height: auto !important; min-height: auto !important; }';
+            doc.head.appendChild(style);
+
+            // Force reflow
+            void(body.offsetHeight);
+
+            // Measure the true content height
+            var h = Math.max(
+                body.scrollHeight, body.offsetHeight,
+                html.scrollHeight, html.offsetHeight
+            );
+
+            var w = Math.max(
+                body.scrollWidth, body.offsetWidth,
+                html.scrollWidth, html.offsetWidth
+            );
+
+            // Remove the override style
+            style.remove();
+
+            // Apply the measured height to iframe
+            if (h > 0) {
+                frame.style.height = h + "px";
+            }
+
             var overlay = document.getElementById("pin-overlay");
-            if (overlay) { overlay.style.height = h; overlay.style.width = w; }
-        } catch (e) {}
+            if (overlay) {
+                overlay.style.height = h + "px";
+                overlay.style.width = w + "px";
+            }
+        } catch (e) {
+            console.error('resizeFrame error:', e);
+        }
     }
     frame.addEventListener("load", resizeFrame);
     frame.addEventListener("load", function () {
