@@ -225,4 +225,98 @@ document.addEventListener("DOMContentLoaded", function () {
         });
         statusSelect.dataset.prev = statusSelect.value;
     }
+
+    // Mode switching (View Mode vs Comment Mode)
+    var modeBtns = document.querySelectorAll(".mode-btn-floating");
+    var pinOverlay = document.getElementById("pin-overlay");
+    var versionsPanel = document.getElementById("versions-panel");
+    var commentsPanel = document.getElementById("comments-panel-sidebar");
+    var currentMode = "view"; // Default to view mode
+
+    function switchMode(mode) {
+        if (mode === currentMode) return;
+        currentMode = mode;
+
+        // Update active button
+        modeBtns.forEach(function (b) {
+            b.classList.toggle("active", b.dataset.mode === mode);
+        });
+
+        // Toggle comment-mode class on layout for cursor control
+        if (mode === "comment") {
+            layout.classList.add("comment-mode");
+        } else {
+            layout.classList.remove("comment-mode");
+        }
+
+        // Toggle pin overlay based on mode
+        if (pinOverlay) {
+            if (mode === "view") {
+                pinOverlay.classList.add("view-mode");
+            } else {
+                pinOverlay.classList.remove("view-mode");
+            }
+        }
+
+        // Switch sidebar panels
+        if (mode === "view") {
+            if (versionsPanel) versionsPanel.classList.add("active");
+            if (commentsPanel) commentsPanel.classList.remove("active");
+        } else {
+            if (versionsPanel) versionsPanel.classList.remove("active");
+            if (commentsPanel) commentsPanel.classList.add("active");
+            // Render comments sidebar when switching to comment mode
+            if (window.renderCommentsSidebar) {
+                window.renderCommentsSidebar();
+            }
+        }
+    }
+
+    // Initialize with view mode
+    switchMode("view");
+
+    // Mode button clicks
+    modeBtns.forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            switchMode(btn.dataset.mode);
+        });
+    });
+
+    // Keyboard shortcuts: V for View, C for Comment
+    document.addEventListener("keydown", function (e) {
+        // Ignore if user is typing in an input/textarea in the main document
+        if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+
+        // Ignore if user is currently focused inside the iframe
+        if (document.activeElement === frame) return;
+
+        if (e.key.toLowerCase() === "v") {
+            e.preventDefault();
+            switchMode("view");
+        } else if (e.key.toLowerCase() === "c") {
+            e.preventDefault();
+            switchMode("comment");
+        }
+    });
+
+    // Also listen for keyboard shortcuts from inside the iframe
+    frame.addEventListener("load", function() {
+        try {
+            var iframeDoc = frame.contentDocument || frame.contentWindow.document;
+            iframeDoc.addEventListener("keydown", function(e) {
+                // Only allow shortcuts if user is NOT typing in an input/textarea inside iframe
+                if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+
+                if (e.key.toLowerCase() === "v") {
+                    e.preventDefault();
+                    switchMode("view");
+                } else if (e.key.toLowerCase() === "c") {
+                    e.preventDefault();
+                    switchMode("comment");
+                }
+            });
+        } catch (e) {
+            // Cross-origin iframe, can't attach event listener
+        }
+    });
 });
